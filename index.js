@@ -215,11 +215,100 @@ async function fetchEventResults(
 }
 
 /**
- * Fetch the upcoming volunteer roster for an event.
+ * Fetch historical volunteer rows with optional early-stop filters:
+ * - latestOnly: fetch only newest event date
+ * - targetEventNumber: fetch only a specific RunId (event instance number)
  */
-async function fetchEventRoster(client, eventId) {
-  const res = await client.get(`/v1/events/${eventId}/rosters`);
-  return res.data?.data?.Rosters || [];
+async function fetchEventVolunteers(
+  client,
+  eventId,
+  { latestOnly, targetEventNumber },
+) {
+  const limit = 100;
+  let offset = 0;
+  let allRows = [];
+  let newestDate = null;
+
+  while (true) {
+    const res = await client.get('/v1/volunteers', {
+      params: { eventNumber: eventId, limit, offset },
+    });
+
+    const rows = res.data?.data?.Volunteers || [];
+    if (rows.length === 0) break;
+
+    if (!newestDate && rows[0]?.EventDate) {
+      newestDate = toDateString(rows[0].EventDate);
+    }
+
+    allRows = allRows.concat(rows);
+
+    if (latestOnly && newestDate) {
+      const hasOlderDates = rows.some(
+        r => toDateString(r.EventDate) !== newestDate,
+      );
+      if (hasOlderDates) {
+        allRows = allRows.filter(r => toDateString(r.EventDate) === newestDate);
+        break;
+      }
+    }
+
+    if (targetEventNumber !== null) {
+      const runIds = rows
+        .map(r => parseInt(r.RunId, 10))
+        .filter(n => Number.isFinite(n));
+
+      if (runIds.length > 0) {
+        const minRunId = Math.min(...runIds);
+        const foundTarget = runIds.includes(targetEventNumber);
+
+        if (minRunId < targetEventNumber || foundTarget) {
+          allRows = allRows.filter(
+            r => parseInt(r.RunId, 10) === targetEventNumber,
+          );
+          break;
+        }
+      }
+    }
+
+    if (rows.length < limit) break;
+    offset += rows.length;
+  }
+
+  return allRows;
+}
+
+/**
+ * Build a task-id -> task-name lookup from roster rows.
+ * The roster endpoint includes task names even when the volunteers endpoint
+ * only returns role IDs.
+ */
+async function fetchVolunteerRoleNameMap(client, eventId) {
+  const limit = 100;
+  let offset = 0;
+  const roleNameById = new Map();
+
+  while (true) {
+    const res = await client.get(`/v1/events/${eventId}/rosters`, {
+      params: { limit, offset },
+    });
+
+    const rows = res.data?.data?.Rosters || [];
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      const id = row?.taskid != null ? parseInt(row.taskid, 10) : null;
+      const name = row?.TaskName ? String(row.TaskName).trim() : '';
+      if (Number.isFinite(id) && name && !roleNameById.has(id)) {
+        roleNameById.set(id, name);
+      }
+    }
+
+    if (rows.length < limit) break;
+    offset += rows.length;
+  }
+
+  return roleNameById;
 }
 
 // ─── Environment ──────────────────────────────────────────────────────────────
@@ -279,6 +368,7 @@ const VOLUNTEERS_SCHEMA = [
   { name: 'event_date', type: 'DATE', mode: 'NULLABLE' },
   { name: 'athlete_id', type: 'INTEGER', mode: 'NULLABLE' },
   { name: 'task_id', type: 'INTEGER', mode: 'NULLABLE' },
+  { name: 'task_ids', type: 'STRING', mode: 'NULLABLE' },
   { name: 'task_name', type: 'STRING', mode: 'NULLABLE' },
   { name: 'first_name', type: 'STRING', mode: 'NULLABLE' },
   { name: 'last_name', type: 'STRING', mode: 'NULLABLE' },
@@ -342,6 +432,42 @@ async function ensureDatasetAndTables() {
       await table.create({ schema });
     }
   }
+
+  // Keep volunteer tables forward-compatible when new nullable columns are added.
+  await ensureColumnExists(BIGQUERY_VOLUNTEERS_TABLE, {
+    name: 'task_ids',
+    type: 'STRING',
+    mode: 'NULLABLE',
+  });
+
+  if (SHOULD_RUN_JUNIOR) {
+    await ensureColumnExists(BIGQUERY_JUNIOR_VOLUNTEERS_TABLE, {
+      name: 'task_ids',
+      type: 'STRING',
+      mode: 'NULLABLE',
+    });
+  }
+}
+
+async function ensureColumnExists(tableId, columnDef) {
+  const table = bq.dataset(BIGQUERY_DATASET_ID).table(tableId);
+  const [exists] = await table.exists();
+  if (!exists) return;
+
+  const [metadata] = await table.getMetadata();
+  const fields = metadata?.schema?.fields || [];
+  const hasColumn = fields.some(f => f.name === columnDef.name);
+
+  if (hasColumn) return;
+
+  const updatedSchema = [...fields, columnDef];
+  await table.setMetadata({
+    schema: {
+      fields: updatedSchema,
+    },
+  });
+
+  console.log(`Added column ${columnDef.name} to ${tableId}.`);
 }
 
 // ─── Query latest stored date for an event ───────────────────────────────────
@@ -355,6 +481,18 @@ async function getLatestStoredDate(tableId, eventName) {
   const [rows] = await bq.query({ query, params: { eventName } });
   const raw = rows[0] && rows[0].latest_date;
   // BigQuery DATE values come back as { value: 'YYYY-MM-DD' }
+  return (raw && (raw.value || raw)) || null;
+}
+
+async function getLatestStoredDateForEvent(tableId, eventNumber) {
+  const query = [
+    `SELECT MAX(event_date) AS latest_date`,
+    `FROM \`${GCP_PROJECT_ID}.${BIGQUERY_DATASET_ID}.${tableId}\``,
+    `WHERE event_number = @eventNumber`,
+  ].join(' ');
+
+  const [rows] = await bq.query({ query, params: { eventNumber } });
+  const raw = rows[0] && rows[0].latest_date;
   return (raw && (raw.value || raw)) || null;
 }
 
@@ -444,6 +582,25 @@ function mapResultRow(raw) {
   };
 }
 
+function parseVolunteerRoleIds(rawRoleIds) {
+  if (!rawRoleIds || String(rawRoleIds).trim() === '') return [];
+  return String(rawRoleIds)
+    .split(',')
+    .map(s => parseInt(s.trim(), 10))
+    .filter(n => Number.isFinite(n));
+}
+
+function mapVolunteerRoleNames(roleIds, roleNameById) {
+  if (roleIds.length === 0) return null;
+  const names = roleIds.map(id => roleNameById.get(id) || `Role ${id}`);
+  return names.join(', ');
+}
+
+function mapVolunteerRoleIdsCsv(roleIds) {
+  if (roleIds.length === 0) return null;
+  return roleIds.join(',');
+}
+
 // ─── Batch-insert rows into a BigQuery table ─────────────────────────────────
 async function insertRows(tableId, rows, idFn) {
   if (rows.length === 0) {
@@ -501,23 +658,87 @@ async function processEvent({
     await getEvent(client, eventId);
   console.log(`[${label}] Event: "${eventDisplayName}" (${eventShortName})`);
 
-  // ── Volunteers / roster ─────────────────────────────────────────────────
-  console.log(`[${label}] Fetching upcoming roster ...`);
-  const roster = await fetchEventRoster(client, eventId);
-  if (roster.length > 0) {
-    const volunteerRows = roster.map(v => ({
-      roster_id: parseInt(v.rosterid, 10),
-      event_number: v.EventNumber != null ? parseInt(v.EventNumber, 10) : null,
-      event_date: toDateString(v.eventdate),
-      athlete_id: v.athleteid != null ? parseInt(v.athleteid, 10) : null,
-      task_id: v.taskid != null ? parseInt(v.taskid, 10) : null,
-      task_name: v.TaskName || null,
-      first_name: v.FirstName || null,
-      last_name: v.LastName || null,
-    }));
+  // ── Historical volunteers ───────────────────────────────────────────────
+  console.log(`[${label}] Fetching volunteer history for event ${eventId} ...`);
+  const rawVolunteers = await fetchEventVolunteers(client, eventId, {
+    latestOnly: SHOULD_FETCH_LATEST_ONLY,
+    targetEventNumber: TARGET_EVENT_NUMBER_INT,
+  });
+  console.log(
+    `  Retrieved ${rawVolunteers.length} total volunteer rows from API.`,
+  );
+
+  const roleNameById = await fetchVolunteerRoleNameMap(client, eventId);
+  console.log(
+    `  Loaded ${roleNameById.size} volunteer role names from roster data.`,
+  );
+
+  let volunteersToInsertRaw = rawVolunteers;
+
+  if (!SCRAPE_ALL) {
+    const latestVolunteerDate = await getLatestStoredDateForEvent(
+      volunteersTable,
+      parseInt(eventId, 10),
+    );
+    if (latestVolunteerDate) {
+      volunteersToInsertRaw = rawVolunteers.filter(
+        r => toDateString(r.EventDate) >= latestVolunteerDate,
+      );
+      console.log(
+        `  Incremental volunteer mode: ${volunteersToInsertRaw.length} rows to refresh since ${latestVolunteerDate}.`,
+      );
+    } else {
+      console.log(
+        `  No existing volunteer data found – performing full volunteer load.`,
+      );
+    }
+  }
+
+  if (MAX_EVENTS) {
+    const sortedVolunteerDates = [
+      ...new Set(
+        volunteersToInsertRaw
+          .map(r => toDateString(r.EventDate))
+          .filter(Boolean),
+      ),
+    ]
+      .sort()
+      .reverse()
+      .slice(0, MAX_EVENTS);
+
+    const volunteerDateSet = new Set(sortedVolunteerDates);
+    volunteersToInsertRaw = volunteersToInsertRaw.filter(r =>
+      volunteerDateSet.has(toDateString(r.EventDate)),
+    );
+    console.log(
+      `  SCRAPE_MAX_EVENTS=${MAX_EVENTS}: keeping volunteer dates ${sortedVolunteerDates.join(', ')}`,
+    );
+  }
+
+  if (volunteersToInsertRaw.length > 0) {
+    const volunteerRows = volunteersToInsertRaw.map(v => {
+      const roleIds = parseVolunteerRoleIds(v.volunteerRoleIds);
+
+      return {
+        roster_id: v.VolID != null ? parseInt(v.VolID, 10) : null,
+        event_number:
+          v.EventNumber != null ? parseInt(v.EventNumber, 10) : null,
+        event_date: toDateString(v.EventDate),
+        athlete_id: v.AthleteID != null ? parseInt(v.AthleteID, 10) : null,
+        task_id: roleIds.length > 0 ? roleIds[0] : null,
+        task_ids: mapVolunteerRoleIdsCsv(roleIds),
+        task_name: mapVolunteerRoleNames(roleIds, roleNameById),
+        first_name: v.FirstName || null,
+        last_name: v.LastName || null,
+      };
+    });
+
+    const volunteerRowsValid = volunteerRows.filter(
+      r => r.roster_id !== null && r.event_date,
+    );
 
     const volunteerDates = [
-      ...new Set(volunteerRows.map(r => r.event_date).filter(Boolean)),
+      ...new Set(volunteerRowsValid.map(r => r.event_date).filter(Boolean)),
     ];
 
     const volunteersDeleted = await deleteRowsForEventDates(
@@ -528,7 +749,7 @@ async function processEvent({
 
     const volunteerKeyFn = r =>
       `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.task_id}-${r.roster_id}`;
-    let volunteerRowsToInsert = volunteerRows;
+    let volunteerRowsToInsert = volunteerRowsValid;
 
     if (!volunteersDeleted) {
       const existingVolunteerKeys = await getExistingKeysForEventDates(
@@ -537,7 +758,7 @@ async function processEvent({
         volunteerDates,
         `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(task_id AS STRING), '-', CAST(roster_id AS STRING))`,
       );
-      volunteerRowsToInsert = volunteerRows.filter(
+      volunteerRowsToInsert = volunteerRowsValid.filter(
         r => !existingVolunteerKeys.has(volunteerKeyFn(r)),
       );
       console.log(
@@ -547,7 +768,7 @@ async function processEvent({
 
     await insertRows(volunteersTable, volunteerRowsToInsert, volunteerKeyFn);
   } else {
-    console.log(`  No upcoming roster entries found.`);
+    console.log(`  No volunteer rows matched the configured filters.`);
   }
 
   // ── Run results ─────────────────────────────────────────────────────────

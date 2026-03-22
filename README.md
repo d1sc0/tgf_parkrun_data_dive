@@ -1,14 +1,20 @@
 # tgf-parkrun-processor
 
-Syncs Parkrun event results and volunteer roster data into BigQuery for analysis.
+Syncs Parkrun event results and historical volunteer data into BigQuery for analysis.
 
 ## How it works
 
 1. Authenticates with the Parkrun API using your event account credentials.
-2. Fetches result rows and roster rows for the configured venue ID.
+2. Fetches result rows and volunteer history rows for the configured venue ID.
 3. In incremental mode, refreshes only recent dates.
 4. Before insert, deletes existing rows for the same event number and event date(s) so data is overwritten, not duplicated.
 5. Writes into BigQuery tables for main event and, optionally, junior event.
+
+Volunteer role fields:
+
+- task_id: first volunteer role ID for the row
+- task_ids: comma-separated list of all volunteer role IDs for the row
+- task_name: comma-separated role names resolved from roster task metadata
 
 ## BigQuery tables
 

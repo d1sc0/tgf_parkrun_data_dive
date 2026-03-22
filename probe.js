@@ -61,6 +61,70 @@ async function main() {
       );
     }
   }
+
+  // ── Historical volunteer / roster endpoint probes ────────────────────────
+  // A known past event date to test against
+  const PAST_DATE = '2026-03-15';
+  const PAST_DATE_COMPACT = '20260315';
+  const EVENT_ID = '2927';
+
+  const rosterProbes = [
+    // Date filter variations on the rosters endpoint
+    { url: `/v1/events/${EVENT_ID}/rosters`, params: { eventDate: PAST_DATE } },
+    {
+      url: `/v1/events/${EVENT_ID}/rosters`,
+      params: { eventDate: PAST_DATE_COMPACT },
+    },
+    {
+      url: `/v1/events/${EVENT_ID}/rosters`,
+      params: { eventDate: PAST_DATE, limit: 100, offset: 0 },
+    },
+    // Paginated rosters with no date filter (all history)
+    { url: `/v1/events/${EVENT_ID}/rosters`, params: { limit: 10, offset: 0 } },
+    // Volunteers endpoint (may not exist)
+    {
+      url: `/v1/volunteers`,
+      params: { eventNumber: EVENT_ID, limit: 5, offset: 0 },
+    },
+    {
+      url: `/v1/volunteers`,
+      params: { eventNumber: EVENT_ID, eventDate: PAST_DATE, limit: 5 },
+    },
+    // Event history endpoint
+    { url: `/v1/eventhistory`, params: { eventNumber: EVENT_ID, limit: 5 } },
+    // Results endpoint — check if volunteer rows come back (role/task fields)
+    {
+      url: `/v1/results`,
+      params: { eventNumber: EVENT_ID, eventDate: PAST_DATE, limit: 5 },
+    },
+  ];
+
+  for (const probe of rosterProbes) {
+    console.log(`\n── Probing ${probe.url} with`, JSON.stringify(probe.params));
+    try {
+      const res = await client.get(probe.url, { params: probe.params });
+      const keys = res.data?.data ? Object.keys(res.data.data) : [];
+      console.log('  Status: 200, data keys:', keys);
+      // Print first item from each array key
+      for (const key of keys) {
+        const val = res.data.data[key];
+        if (Array.isArray(val)) {
+          console.log(`  ${key} count:`, val.length);
+          if (val.length > 0)
+            console.log(`  ${key}[0]:`, JSON.stringify(val[0], null, 2));
+        }
+      }
+      const range =
+        res.headers?.['content-range'] || res.data?.['Content-Range'];
+      if (range) console.log('  Content-Range:', range);
+    } catch (e) {
+      const status = e.response?.status;
+      const body = e.response?.data
+        ? JSON.stringify(e.response.data).slice(0, 200)
+        : e.message;
+      console.log(`  Status: ${status ?? 'ERR'}, body: ${body}`);
+    }
+  }
 }
 
 main().catch(e => {

@@ -33,6 +33,7 @@ const volunteersSchema = [
   { name: 'event_date', type: 'DATE', mode: 'NULLABLE' },
   { name: 'athlete_id', type: 'INTEGER', mode: 'NULLABLE' },
   { name: 'task_id', type: 'INTEGER', mode: 'NULLABLE' },
+  { name: 'task_ids', type: 'STRING', mode: 'NULLABLE' },
   { name: 'task_name', type: 'STRING', mode: 'NULLABLE' },
   { name: 'first_name', type: 'STRING', mode: 'NULLABLE' },
   { name: 'last_name', type: 'STRING', mode: 'NULLABLE' },

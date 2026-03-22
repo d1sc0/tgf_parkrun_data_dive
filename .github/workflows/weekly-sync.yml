@@ -51,6 +51,8 @@ jobs:
 
       - name: Validate required secrets
         shell: bash
+        env:
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
         run: |
           set -euo pipefail
           required=(
@@ -72,7 +74,13 @@ jobs:
           echo "Required secrets/env vars are present."
 
       - name: Write GCP service account key
+        env:
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
         run: |
+          if [[ -z "$GCP_SERVICE_ACCOUNT_KEY" ]]; then
+            echo "Missing required secret/env: GCP_SERVICE_ACCOUNT_KEY"
+            exit 1
+          fi
           cat > service-account-key.json <<'JSON'
           ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           JSON

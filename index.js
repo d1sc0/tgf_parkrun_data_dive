@@ -45,7 +45,12 @@ async function parkrunAuth(username, password) {
       return res.data.access_token;
     } catch (err) {
       const status = err?.response?.status;
-      const retriable = status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+      const retriable =
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504;
 
       if (attempt < maxAttempts && retriable) {
         const waitMs = attempt * 5000;

@@ -335,16 +335,57 @@ async function deleteRowsForEventDates(tableId, eventNumber, eventDates) {
   const query = [
     `DELETE FROM \`${GCP_PROJECT_ID}.${BIGQUERY_DATASET_ID}.${tableId}\``,
     `WHERE event_number = @eventNumber`,
-    `AND event_date IN UNNEST(ARRAY(SELECT DATE(d) FROM UNNEST(@eventDates) AS d))`,
+    // Compare as string to avoid parameter type coercion edge-cases with DATE arrays.
+    `AND CAST(event_date AS STRING) IN UNNEST(@eventDates)`,
   ].join(' ');
 
-  await bq.query({
+  try {
+    await bq.query({
+      query,
+      params: {
+        eventNumber,
+        eventDates,
+      },
+    });
+    return true;
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (msg.toLowerCase().includes('streaming buffer')) {
+      console.warn(
+        `  Warning: delete skipped for ${tableId} due to streaming buffer; using key-dedupe fallback.`,
+      );
+      return false;
+    }
+    throw new Error(
+      `Failed deleting existing rows from ${tableId} for event ${eventNumber} and dates [${eventDates.join(', ')}]: ${msg}`,
+    );
+  }
+}
+
+async function getExistingKeysForEventDates(
+  tableId,
+  eventNumber,
+  eventDates,
+  keyExpr,
+) {
+  if (!eventDates || eventDates.length === 0) return new Set();
+
+  const query = [
+    `SELECT ${keyExpr} AS dedupe_key`,
+    `FROM \`${GCP_PROJECT_ID}.${BIGQUERY_DATASET_ID}.${tableId}\``,
+    `WHERE event_number = @eventNumber`,
+    `AND CAST(event_date AS STRING) IN UNNEST(@eventDates)`,
+  ].join(' ');
+
+  const [rows] = await bq.query({
     query,
     params: {
       eventNumber,
       eventDates,
     },
   });
+
+  return new Set(rows.map(r => r.dedupe_key).filter(Boolean));
 }
 
 // ─── Map raw API row → BigQuery row ──────────────────────────────────────────
@@ -449,12 +490,32 @@ async function processEvent({
       ...new Set(volunteerRows.map(r => r.event_date).filter(Boolean)),
     ];
 
-    await deleteRowsForEventDates(
+    const volunteersDeleted = await deleteRowsForEventDates(
       volunteersTable,
       parseInt(eventId, 10),
       volunteerDates,
     );
-    await insertRows(volunteersTable, volunteerRows, r => r.roster_id);
+
+    const volunteerKeyFn = r =>
+      `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.task_id}-${r.roster_id}`;
+    let volunteerRowsToInsert = volunteerRows;
+
+    if (!volunteersDeleted) {
+      const existingVolunteerKeys = await getExistingKeysForEventDates(
+        volunteersTable,
+        parseInt(eventId, 10),
+        volunteerDates,
+        `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(task_id AS STRING), '-', CAST(roster_id AS STRING))`,
+      );
+      volunteerRowsToInsert = volunteerRows.filter(
+        r => !existingVolunteerKeys.has(volunteerKeyFn(r)),
+      );
+      console.log(
+        `  Dedupe fallback: ${volunteerRowsToInsert.length} new volunteer rows to insert.`,
+      );
+    }
+
+    await insertRows(volunteersTable, volunteerRowsToInsert, volunteerKeyFn);
   } else {
     console.log(`  No upcoming roster entries found.`);
   }
@@ -508,12 +569,32 @@ async function processEvent({
     ...new Set(mapped.map(r => r.event_date).filter(Boolean)),
   ];
 
-  await deleteRowsForEventDates(
+  const resultsDeleted = await deleteRowsForEventDates(
     resultsTable,
     parseInt(eventId, 10),
     resultDates,
   );
-  await insertRows(resultsTable, mapped, r => r.run_id);
+
+  const resultKeyFn = r =>
+    `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.run_id}`;
+  let mappedToInsert = mapped;
+
+  if (!resultsDeleted) {
+    const existingResultKeys = await getExistingKeysForEventDates(
+      resultsTable,
+      parseInt(eventId, 10),
+      resultDates,
+      `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(run_id AS STRING))`,
+    );
+    mappedToInsert = mapped.filter(
+      r => !existingResultKeys.has(resultKeyFn(r)),
+    );
+    console.log(
+      `  Dedupe fallback: ${mappedToInsert.length} new result rows to insert.`,
+    );
+  }
+
+  await insertRows(resultsTable, mappedToInsert, resultKeyFn);
 
   console.log(`[${label}] Done.`);
 }
@@ -591,7 +672,10 @@ main().catch(err => {
     );
     console.error('Response body:', JSON.stringify(err.response.data));
   } else {
-    console.error('Fatal error:', err.message || err);
+    console.error('Fatal error:', err && err.message ? err.message : err);
+    if (err && err.stack) {
+      console.error(err.stack);
+    }
   }
   process.exit(1);
 });

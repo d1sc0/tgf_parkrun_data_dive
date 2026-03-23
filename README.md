@@ -124,6 +124,15 @@ Includes:
 - volunteer role summaries for `volunteers` and `junior_volunteers`
 - duplicate detection queries
 - daily QA checks (latest-date rows, day-over-day deltas, null-rate checks, latest-run completeness)
+- headline one-row stats query (`16_headline_stats.sql`)
+
+Publish all SQL files as BigQuery views:
+
+`npm run publish:views`
+
+Optional override for destination dataset:
+
+- `BIGQUERY_VIEWS_DATASET_ID` (defaults to `BIGQUERY_DATASET_ID`)
 
 ## On-demand full loader
 

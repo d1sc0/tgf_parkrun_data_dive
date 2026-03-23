@@ -7,6 +7,7 @@
     "start": "node index.js",
     "dev": "node index.js",
     "setup:bq": "node create-bigquery-tables.js",
+    "publish:views": "node publish-bigquery-views.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

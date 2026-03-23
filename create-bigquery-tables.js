@@ -23,6 +23,7 @@ const resultsSchema = [
   { name: 'was_pb', type: 'BOOLEAN', mode: 'NULLABLE' },
   { name: 'was_genuine_pb', type: 'BOOLEAN', mode: 'NULLABLE' },
   { name: 'was_first_run_at_event', type: 'BOOLEAN', mode: 'NULLABLE' },
+  { name: 'is_unknown_athlete', type: 'BOOLEAN', mode: 'NULLABLE' },
   { name: 'series_id', type: 'INTEGER', mode: 'NULLABLE' },
   { name: 'updated', type: 'TIMESTAMP', mode: 'NULLABLE' },
 ];

@@ -10,6 +10,11 @@ Syncs Parkrun event results and historical volunteer data into BigQuery for anal
 4. Before insert, deletes existing rows for the same event number and event date(s) so data is overwritten, not duplicated.
 5. Writes into BigQuery tables for main event and, optionally, junior event.
 6. Processes run results first, then processes volunteers.
+7. Marks API placeholder athletes using an explicit flag for easier analysis.
+
+Results unknown-athlete field:
+
+- is_unknown_athlete: true when `athlete_id = 2214` (Parkrun API "Unknown ATHLETE" placeholder), false otherwise
 
 Volunteer role fields:
 

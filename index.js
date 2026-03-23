@@ -543,6 +543,7 @@ const RESULTS_SCHEMA = [
   { name: 'was_pb', type: 'BOOLEAN', mode: 'NULLABLE' },
   { name: 'was_genuine_pb', type: 'BOOLEAN', mode: 'NULLABLE' },
   { name: 'was_first_run_at_event', type: 'BOOLEAN', mode: 'NULLABLE' },
+  { name: 'is_unknown_athlete', type: 'BOOLEAN', mode: 'NULLABLE' },
   { name: 'series_id', type: 'INTEGER', mode: 'NULLABLE' },
   { name: 'updated', type: 'TIMESTAMP', mode: 'NULLABLE' },
 ];
@@ -617,6 +618,20 @@ async function ensureDatasetAndTables() {
       console.log(`Creating BigQuery table: ${tableId}`);
       await table.create({ schema });
     }
+  }
+
+  await ensureColumnExists(BIGQUERY_RESULTS_TABLE, {
+    name: 'is_unknown_athlete',
+    type: 'BOOLEAN',
+    mode: 'NULLABLE',
+  });
+
+  if (SHOULD_RUN_JUNIOR) {
+    await ensureColumnExists(BIGQUERY_JUNIOR_RESULTS_TABLE, {
+      name: 'is_unknown_athlete',
+      type: 'BOOLEAN',
+      mode: 'NULLABLE',
+    });
   }
 
   // Keep volunteer tables forward-compatible when new nullable columns are added.
@@ -744,9 +759,11 @@ async function getExistingKeysForEventDates(
 
 // ─── Map raw API row → BigQuery row ──────────────────────────────────────────
 function mapResultRow(raw) {
+  const athleteId = parseInt(raw.AthleteID, 10);
+
   return {
     run_id: parseInt(raw.RunId, 10),
-    athlete_id: parseInt(raw.AthleteID, 10),
+    athlete_id: athleteId,
     event_date: toDateString(raw.EventDate),
     event_name: raw.EventLongName || null,
     event_number:
@@ -763,6 +780,7 @@ function mapResultRow(raw) {
     was_pb: parseBool(raw.WasPbRun),
     was_genuine_pb: parseBool(raw.GenuinePB),
     was_first_run_at_event: parseBool(raw.FirstTimer),
+    is_unknown_athlete: athleteId === 2214,
     series_id: raw.SeriesID != null ? parseInt(raw.SeriesID, 10) : null,
     updated: raw.Updated || null,
   };
@@ -927,7 +945,7 @@ async function processEvent({
   );
 
   const resultKeyFn = r =>
-    `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.run_id}`;
+    `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.run_id}-${r.finish_position ?? 'null'}`;
   let mappedToInsert = mapped;
 
   if (!resultsDeleted) {
@@ -935,7 +953,7 @@ async function processEvent({
       resultsTable,
       parseInt(eventId, 10),
       resultDates,
-      `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(run_id AS STRING))`,
+      `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(run_id AS STRING), '-', IFNULL(CAST(finish_position AS STRING), 'null'))`,
     );
     mappedToInsert = mapped.filter(
       r => !existingResultKeys.has(resultKeyFn(r)),

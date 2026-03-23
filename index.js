@@ -205,6 +205,10 @@ async function fetchRowsByRunIds(
     const runId = runIds[i];
     const endpoint = `/v1/events/${eventId}/runs/${runId}/${dataType}`;
 
+    console.log(
+      `  ${dataType}: processing run ${i + 1}/${runIds.length} (run_id=${runId})...`,
+    );
+
     const maxAttempts = 5;
     let rowsForRun = null;
 
@@ -441,8 +445,10 @@ async function fetchEventVolunteers(
 async function fetchVolunteerRoleNameMapByRunIds(client, eventId, runIds) {
   const roleNameById = new Map();
   const uniqueRunIds = [...new Set(runIds)].filter(Number.isFinite);
+  const lookupStartedAt = Date.now();
 
-  for (const runId of uniqueRunIds) {
+  for (let i = 0; i < uniqueRunIds.length; i += 1) {
+    const runId = uniqueRunIds[i];
     const maxAttempts = 3;
     let rosterRows = null;
 
@@ -484,10 +490,15 @@ async function fetchVolunteerRoleNameMapByRunIds(client, eventId, runIds) {
       }
     }
 
-    if (RUN_FETCH_DELAY_MS_INT > 0) {
+    if (RUN_FETCH_DELAY_MS_INT > 0 && i + 1 < uniqueRunIds.length) {
       await sleep(RUN_FETCH_DELAY_MS_INT);
     }
   }
+
+  const lookupMs = Date.now() - lookupStartedAt;
+  console.log(
+    `  Volunteer roster lookup completed in ${lookupMs}ms across ${uniqueRunIds.length} run(s).`,
+  );
 
   return roleNameById;
 }
@@ -634,31 +645,27 @@ async function ensureDatasetAndTables() {
     });
   }
 
+  // Add athlete-profile columns to results tables.
+  for (const col of [
+    { name: 'club_id', type: 'INTEGER', mode: 'NULLABLE' },
+    { name: 'home_run_id', type: 'INTEGER', mode: 'NULLABLE' },
+    { name: 'country_code', type: 'INTEGER', mode: 'NULLABLE' },
+  ]) {
+    await ensureColumnExists(BIGQUERY_RESULTS_TABLE, col);
+    if (SHOULD_RUN_JUNIOR)
+      await ensureColumnExists(BIGQUERY_JUNIOR_RESULTS_TABLE, col);
+  }
+
   // Keep volunteer tables forward-compatible when new nullable columns are added.
-  await ensureColumnExists(BIGQUERY_VOLUNTEERS_TABLE, {
-    name: 'run_id',
-    type: 'INTEGER',
-    mode: 'NULLABLE',
-  });
-
-  await ensureColumnExists(BIGQUERY_VOLUNTEERS_TABLE, {
-    name: 'task_ids',
-    type: 'STRING',
-    mode: 'NULLABLE',
-  });
-
-  if (SHOULD_RUN_JUNIOR) {
-    await ensureColumnExists(BIGQUERY_JUNIOR_VOLUNTEERS_TABLE, {
-      name: 'run_id',
-      type: 'INTEGER',
-      mode: 'NULLABLE',
-    });
-
-    await ensureColumnExists(BIGQUERY_JUNIOR_VOLUNTEERS_TABLE, {
-      name: 'task_ids',
-      type: 'STRING',
-      mode: 'NULLABLE',
-    });
+  for (const col of [
+    { name: 'run_id', type: 'INTEGER', mode: 'NULLABLE' },
+    { name: 'task_ids', type: 'STRING', mode: 'NULLABLE' },
+    { name: 'home_run_id', type: 'INTEGER', mode: 'NULLABLE' },
+    { name: 'country_code', type: 'INTEGER', mode: 'NULLABLE' },
+  ]) {
+    await ensureColumnExists(BIGQUERY_VOLUNTEERS_TABLE, col);
+    if (SHOULD_RUN_JUNIOR)
+      await ensureColumnExists(BIGQUERY_JUNIOR_VOLUNTEERS_TABLE, col);
   }
 }
 
@@ -757,7 +764,7 @@ async function getExistingKeysForEventDates(
   return new Set(rows.map(r => r.dedupe_key).filter(Boolean));
 }
 
-// ─── Map raw API row → BigQuery row ──────────────────────────────────────────
+// Map raw API row → BigQuery row ──────────────────────────────────────────
 function mapResultRow(raw) {
   const athleteId = parseInt(raw.AthleteID, 10);
 
@@ -859,6 +866,178 @@ async function insertRows(tableId, rows, idFn) {
   console.log(`  Inserted ${rows.length} rows into ${tableId}.`);
 }
 
+// ─── Per-run-id write: fetch and insert results+volunteers one run at a time ──
+async function processRunScopedHistory({
+  client,
+  eventId,
+  label,
+  resultsTable,
+  volunteersTable,
+}) {
+  const runIds = await fetchRunIds(client, eventId);
+  console.log(
+    `  Full-history mode: ${runIds.length} runs to process for event ${eventId}.`,
+  );
+
+  const resultKeyFn = r =>
+    `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.run_id}-${r.finish_position ?? 'null'}`;
+  const volunteerKeyFn = r =>
+    `${r.event_number}-${r.run_id}-${r.event_date}-${r.athlete_id}-${r.task_id}-${r.roster_id}`;
+
+  let totalResultsInserted = 0;
+  let totalVolunteersInserted = 0;
+
+  for (let i = 0; i < runIds.length; i += 1) {
+    const runId = runIds[i];
+    console.log(`\n  [Run ${i + 1}/${runIds.length}] run_id=${runId}`);
+
+    // ── Results ────────────────────────────────────────────────────────────
+    let resultRows = null;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      try {
+        resultRows = await multiGet(
+          client,
+          `/v1/events/${eventId}/runs/${runId}/results`,
+          {},
+          'Results',
+          'ResultsRange',
+        );
+        break;
+      } catch (err) {
+        const status = err?.response?.status;
+        const retriable =
+          status === 403 ||
+          status === 429 ||
+          status === 500 ||
+          status === 502 ||
+          status === 503 ||
+          status === 504;
+        if (!retriable || attempt === 5) throw err;
+        const waitMs = Math.max(RUN_FETCH_DELAY_MS_INT, 1000) * attempt;
+        console.warn(
+          `    results run ${runId}: HTTP ${status} on attempt ${attempt}/5; retrying in ${Math.round(waitMs / 1000)}s...`,
+        );
+        await sleep(waitMs);
+      }
+    }
+
+    if (resultRows && resultRows.length > 0) {
+      const mapped = resultRows.map(mapResultRow);
+      const resultDates = [
+        ...new Set(mapped.map(r => r.event_date).filter(Boolean)),
+      ];
+      const resultsDeleted = await deleteRowsForEventDates(
+        resultsTable,
+        parseInt(eventId, 10),
+        resultDates,
+      );
+      let toInsert = mapped;
+      if (!resultsDeleted) {
+        const existingKeys = await getExistingKeysForEventDates(
+          resultsTable,
+          parseInt(eventId, 10),
+          resultDates,
+          `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(run_id AS STRING), '-', IFNULL(CAST(finish_position AS STRING), 'null'))`,
+        );
+        toInsert = mapped.filter(r => !existingKeys.has(resultKeyFn(r)));
+        console.log(`    Dedupe fallback: ${toInsert.length} new result rows.`);
+      }
+      await insertRows(resultsTable, toInsert, resultKeyFn);
+      totalResultsInserted += toInsert.length;
+    } else {
+      console.log(`    No result rows for run_id=${runId}.`);
+    }
+
+    // ── Volunteers ─────────────────────────────────────────────────────────
+    let volunteerRows = null;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      try {
+        volunteerRows = await multiGet(
+          client,
+          `/v1/events/${eventId}/runs/${runId}/volunteers`,
+          {},
+          'Volunteers',
+          'VolunteersRange',
+        );
+        break;
+      } catch (err) {
+        const status = err?.response?.status;
+        const retriable =
+          status === 403 ||
+          status === 429 ||
+          status === 500 ||
+          status === 502 ||
+          status === 503 ||
+          status === 504;
+        if (!retriable || attempt === 5) throw err;
+        const waitMs = Math.max(RUN_FETCH_DELAY_MS_INT, 1000) * attempt;
+        console.warn(
+          `    volunteers run ${runId}: HTTP ${status} on attempt ${attempt}/5; retrying in ${Math.round(waitMs / 1000)}s...`,
+        );
+        await sleep(waitMs);
+      }
+    }
+
+    if (volunteerRows && volunteerRows.length > 0) {
+      const roleNameById = await fetchVolunteerRoleNameMapByRunIds(
+        client,
+        eventId,
+        [runId],
+      );
+      const mapped = volunteerRows.map(v => {
+        const roleIds = parseVolunteerRoleIds(v.volunteerRoleIds);
+        return {
+          roster_id: v.VolID != null ? parseInt(v.VolID, 10) : null,
+          event_number:
+            v.EventNumber != null ? parseInt(v.EventNumber, 10) : null,
+          run_id: v.RunId != null ? parseInt(v.RunId, 10) : null,
+          event_date: toDateString(v.EventDate),
+          athlete_id: v.AthleteID != null ? parseInt(v.AthleteID, 10) : null,
+          task_id: roleIds.length > 0 ? roleIds[0] : null,
+          task_ids: mapVolunteerRoleIdsCsv(roleIds),
+          task_name: mapVolunteerRoleNames(roleIds, roleNameById),
+          first_name: v.FirstName || null,
+          last_name: v.LastName || null,
+        };
+      });
+      const valid = mapped.filter(r => r.roster_id !== null && r.event_date);
+      const volunteerDates = [
+        ...new Set(valid.map(r => r.event_date).filter(Boolean)),
+      ];
+      const volunteersDeleted = await deleteRowsForEventDates(
+        volunteersTable,
+        parseInt(eventId, 10),
+        volunteerDates,
+      );
+      let toInsert = valid;
+      if (!volunteersDeleted) {
+        const existingKeys = await getExistingKeysForEventDates(
+          volunteersTable,
+          parseInt(eventId, 10),
+          volunteerDates,
+          `CONCAT(CAST(event_number AS STRING), '-', CAST(run_id AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(task_id AS STRING), '-', CAST(roster_id AS STRING))`,
+        );
+        toInsert = valid.filter(r => !existingKeys.has(volunteerKeyFn(r)));
+        console.log(
+          `    Dedupe fallback: ${toInsert.length} new volunteer rows.`,
+        );
+      }
+      await insertRows(volunteersTable, toInsert, volunteerKeyFn);
+      totalVolunteersInserted += toInsert.length;
+    } else {
+      console.log(`    No volunteer rows for run_id=${runId}.`);
+    }
+
+    if (RUN_FETCH_DELAY_MS_INT > 0 && i + 1 < runIds.length) {
+      await sleep(RUN_FETCH_DELAY_MS_INT);
+    }
+  }
+
+  console.log(
+    `\n  Full-history complete: ${totalResultsInserted} results + ${totalVolunteersInserted} volunteers inserted across ${runIds.length} runs.`,
+  );
+}
+
 // ─── Process a single parkrun event ──────────────────────────────────────────
 async function processEvent({
   username,
@@ -879,6 +1058,18 @@ async function processEvent({
 
   const useRunScopedHistory =
     SCRAPE_ALL && !SHOULD_FETCH_LATEST_ONLY && TARGET_EVENT_NUMBER_INT === null;
+
+  if (useRunScopedHistory) {
+    await processRunScopedHistory({
+      client,
+      eventId,
+      label,
+      resultsTable,
+      volunteersTable,
+    });
+    console.log(`[${label}] Done.`);
+    return;
+  }
 
   // ── Run results ─────────────────────────────────────────────────────────
   console.log(`[${label}] Fetching run results for event ${eventId} ...`);
@@ -932,23 +1123,30 @@ async function processEvent({
     );
   }
 
+  const resultMapStartedAt = Date.now();
   const mapped = toInsert.map(mapResultRow);
+  const resultMapMs = Date.now() - resultMapStartedAt;
+  console.log(`  Result row mapping phase took ${resultMapMs}ms.`);
 
   const resultDates = [
     ...new Set(mapped.map(r => r.event_date).filter(Boolean)),
   ];
 
+  const resultDeleteStartedAt = Date.now();
   const resultsDeleted = await deleteRowsForEventDates(
     resultsTable,
     parseInt(eventId, 10),
     resultDates,
   );
+  const resultDeleteMs = Date.now() - resultDeleteStartedAt;
+  console.log(`  Result delete/refresh phase took ${resultDeleteMs}ms.`);
 
   const resultKeyFn = r =>
     `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.run_id}-${r.finish_position ?? 'null'}`;
   let mappedToInsert = mapped;
 
   if (!resultsDeleted) {
+    const resultDedupeStartedAt = Date.now();
     const existingResultKeys = await getExistingKeysForEventDates(
       resultsTable,
       parseInt(eventId, 10),
@@ -961,9 +1159,16 @@ async function processEvent({
     console.log(
       `  Dedupe fallback: ${mappedToInsert.length} new result rows to insert.`,
     );
+    const resultDedupeMs = Date.now() - resultDedupeStartedAt;
+    console.log(`  Result dedupe query/filter took ${resultDedupeMs}ms.`);
   }
 
+  const resultInsertStartedAt = Date.now();
   await insertRows(resultsTable, mappedToInsert, resultKeyFn);
+  const resultInsertMs = Date.now() - resultInsertStartedAt;
+  console.log(
+    `  Result insert phase took ${resultInsertMs}ms for ${mappedToInsert.length} row(s).`,
+  );
 
   // ── Historical volunteers (processed after results) ─────────────────────
   console.log(`[${label}] Fetching volunteer history for event ${eventId} ...`);
@@ -1027,14 +1232,18 @@ async function processEvent({
           .filter(Number.isFinite),
       ),
     ];
+
+    const rosterLookupStartedAt = Date.now();
     const roleNameById = await fetchVolunteerRoleNameMapByRunIds(
       client,
       eventId,
       runIdsForRosterLookup,
     );
+    const rosterLookupMs = Date.now() - rosterLookupStartedAt;
     console.log(
       `  Loaded ${roleNameById.size} volunteer role names from run rosters (${runIdsForRosterLookup.length} runs).`,
     );
+    console.log(`  Volunteer roster lookup phase took ${rosterLookupMs}ms.`);
 
     const volunteerRows = volunteersToInsertRaw.map(v => {
       const roleIds = parseVolunteerRoleIds(v.volunteerRoleIds);
@@ -1062,17 +1271,21 @@ async function processEvent({
       ...new Set(volunteerRowsValid.map(r => r.event_date).filter(Boolean)),
     ];
 
+    const deleteStartedAt = Date.now();
     const volunteersDeleted = await deleteRowsForEventDates(
       volunteersTable,
       parseInt(eventId, 10),
       volunteerDates,
     );
+    const deleteMs = Date.now() - deleteStartedAt;
+    console.log(`  Volunteer delete/refresh phase took ${deleteMs}ms.`);
 
     const volunteerKeyFn = r =>
       `${r.event_number}-${r.run_id}-${r.event_date}-${r.athlete_id}-${r.task_id}-${r.roster_id}`;
     let volunteerRowsToInsert = volunteerRowsValid;
 
     if (!volunteersDeleted) {
+      const dedupeStartedAt = Date.now();
       const existingVolunteerKeys = await getExistingKeysForEventDates(
         volunteersTable,
         parseInt(eventId, 10),
@@ -1082,12 +1295,19 @@ async function processEvent({
       volunteerRowsToInsert = volunteerRowsValid.filter(
         r => !existingVolunteerKeys.has(volunteerKeyFn(r)),
       );
+      const dedupeMs = Date.now() - dedupeStartedAt;
       console.log(
         `  Dedupe fallback: ${volunteerRowsToInsert.length} new volunteer rows to insert.`,
       );
+      console.log(`  Volunteer dedupe query/filter took ${dedupeMs}ms.`);
     }
 
+    const insertStartedAt = Date.now();
     await insertRows(volunteersTable, volunteerRowsToInsert, volunteerKeyFn);
+    const insertMs = Date.now() - insertStartedAt;
+    console.log(
+      `  Volunteer insert phase took ${insertMs}ms for ${volunteerRowsToInsert.length} row(s).`,
+    );
   } else {
     console.log(`  No volunteer rows matched the configured filters.`);
   }

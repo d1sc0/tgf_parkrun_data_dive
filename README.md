@@ -52,22 +52,29 @@ Runtime flags:
 - TARGET_EVENT_NUMBER
 - SCRAPE_ALL_EVENTS
 - SCRAPE_MAX_EVENTS
+- RUN_FETCH_DELAY_MS
 
 ## Runtime behavior and flags
 
 - SCRAPE_ALL_EVENTS=true
   - Full history mode.
+  - When `FETCH_LATEST_ONLY=false` and no `TARGET_EVENT_NUMBER` is set, full history is fetched run-by-run via `/v1/events/{eventId}/runs` then direct run endpoints for better reliability.
 
 - SCRAPE_ALL_EVENTS=false (or unset)
   - Incremental mode.
   - Loads rows with EventDate >= latest date currently stored, then overwrites that date slice.
 
 - FETCH_LATEST_ONLY=true
-  - API fetch stops once the newest event date is fully collected.
+  - Fetches the newest run directly via `/v1/events/{eventId}/runs?limit=1`, then loads that run's results/volunteers from run-scoped endpoints.
   - Best option for fast weekly sync.
 
 - TARGET_EVENT_NUMBER=<RunId>
   - Fetches only one specific event instance (RunId), for example 232.
+  - Uses direct run-scoped endpoints (`/v1/events/{eventId}/runs/{runId}/results` and `/v1/events/{eventId}/runs/{runId}/volunteers`) to avoid wide history pagination.
+
+- RUN_FETCH_DELAY_MS=250
+  - Milliseconds delay between run-scoped requests during full-history mode.
+  - Increase this (for example 500-1000) if Parkrun starts returning 403/429 during large backfills.
 
 - SCRAPE_MAX_EVENTS=1
   - Keeps only the newest one event date from fetched rows before writing.

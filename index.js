@@ -136,6 +136,122 @@ async function multiGet(client, url, extraParams, dataKey, rangeKey) {
   return data;
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchRunIds(client, eventId) {
+  const limit = 100;
+  let offset = 0;
+  const runIds = [];
+
+  while (true) {
+    const res = await client.get(`/v1/events/${eventId}/runs`, {
+      params: { limit, offset },
+    });
+
+    const runs = res.data?.data?.Runs || [];
+    if (runs.length === 0) break;
+
+    for (const run of runs) {
+      const runId = parseInt(run.RunId, 10);
+      if (Number.isFinite(runId)) {
+        runIds.push(runId);
+      }
+    }
+
+    if (runs.length < limit) break;
+    offset += runs.length;
+  }
+
+  return runIds;
+}
+
+async function fetchLatestRunId(client, eventId) {
+  const firstPage = await client.get(`/v1/events/${eventId}/runs`, {
+    params: { limit: 1, offset: 0 },
+  });
+
+  const totalRunsRaw =
+    firstPage.data?.['Content-Range']?.RunsRange?.[0]?.max ||
+    firstPage.data?.['Content-Range']?.Runsrange?.[0]?.max;
+  const totalRuns = parseInt(totalRunsRaw, 10);
+
+  if (!Number.isFinite(totalRuns) || totalRuns <= 0) {
+    const only = firstPage.data?.data?.Runs?.[0];
+    const fallbackRunId = only ? parseInt(only.RunId, 10) : null;
+    return Number.isFinite(fallbackRunId) ? fallbackRunId : null;
+  }
+
+  const lastOffset = Math.max(totalRuns - 1, 0);
+  const lastPage = await client.get(`/v1/events/${eventId}/runs`, {
+    params: { limit: 1, offset: lastOffset },
+  });
+
+  const latest = lastPage.data?.data?.Runs?.[0];
+  const latestRunId = latest ? parseInt(latest.RunId, 10) : null;
+  return Number.isFinite(latestRunId) ? latestRunId : null;
+}
+
+async function fetchRowsByRunIds(
+  client,
+  eventId,
+  runIds,
+  { dataType, dataKey, rangeKey, delayMs },
+) {
+  const allRows = [];
+
+  for (let i = 0; i < runIds.length; i += 1) {
+    const runId = runIds[i];
+    const endpoint = `/v1/events/${eventId}/runs/${runId}/${dataType}`;
+
+    const maxAttempts = 5;
+    let rowsForRun = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        rowsForRun = await multiGet(client, endpoint, {}, dataKey, rangeKey);
+        break;
+      } catch (err) {
+        const status = err?.response?.status;
+        const retriable =
+          status === 403 ||
+          status === 429 ||
+          status === 500 ||
+          status === 502 ||
+          status === 503 ||
+          status === 504;
+
+        if (!retriable || attempt === maxAttempts) {
+          throw err;
+        }
+
+        const waitMs = Math.max(delayMs, 1000) * attempt;
+        console.warn(
+          `  ${dataType} run ${runId}: HTTP ${status} on attempt ${attempt}/${maxAttempts}; retrying in ${Math.round(waitMs / 1000)}s...`,
+        );
+        await sleep(waitMs);
+      }
+    }
+
+    if (rowsForRun && rowsForRun.length > 0) {
+      allRows.push(...rowsForRun);
+    }
+
+    if ((i + 1) % 20 === 0 || i + 1 === runIds.length) {
+      console.log(
+        `  ${dataType}: processed ${i + 1}/${runIds.length} runs (${allRows.length} rows so far).`,
+      );
+    }
+
+    if (delayMs > 0 && i + 1 < runIds.length) {
+      await sleep(delayMs);
+    }
+  }
+
+  return allRows;
+}
+
 /**
  * Get event metadata by numeric event ID.
  * Returns { internalName, displayName }
@@ -158,8 +274,46 @@ async function getEvent(client, eventId) {
 async function fetchEventResults(
   client,
   eventId,
-  { latestOnly, targetEventNumber },
+  { latestOnly, targetEventNumber, useRunScopedHistory, runFetchDelayMs },
 ) {
+  if (targetEventNumber !== null) {
+    const runRows = await multiGet(
+      client,
+      `/v1/events/${eventId}/runs/${targetEventNumber}/results`,
+      {},
+      'Results',
+      'ResultsRange',
+    );
+    return runRows;
+  }
+
+  if (latestOnly) {
+    const latestRunId = await fetchLatestRunId(client, eventId);
+    if (latestRunId === null) return [];
+
+    const runRows = await multiGet(
+      client,
+      `/v1/events/${eventId}/runs/${latestRunId}/results`,
+      {},
+      'Results',
+      'ResultsRange',
+    );
+    return runRows;
+  }
+
+  if (useRunScopedHistory) {
+    const runIds = await fetchRunIds(client, eventId);
+    console.log(
+      `  Using run-scoped results fetch across ${runIds.length} runs for event ${eventId}.`,
+    );
+    return fetchRowsByRunIds(client, eventId, runIds, {
+      dataType: 'results',
+      dataKey: 'Results',
+      rangeKey: 'ResultsRange',
+      delayMs: runFetchDelayMs,
+    });
+  }
+
   const limit = 100;
   let offset = 0;
   let allRows = [];
@@ -189,24 +343,6 @@ async function fetchEventResults(
       }
     }
 
-    if (targetEventNumber !== null) {
-      const runIds = rows
-        .map(r => parseInt(r.RunId, 10))
-        .filter(n => Number.isFinite(n));
-
-      if (runIds.length > 0) {
-        const minRunId = Math.min(...runIds);
-        const foundTarget = runIds.includes(targetEventNumber);
-
-        if (minRunId < targetEventNumber || foundTarget) {
-          allRows = allRows.filter(
-            r => parseInt(r.RunId, 10) === targetEventNumber,
-          );
-          break;
-        }
-      }
-    }
-
     if (rows.length < limit) break;
     offset += rows.length;
   }
@@ -222,8 +358,46 @@ async function fetchEventResults(
 async function fetchEventVolunteers(
   client,
   eventId,
-  { latestOnly, targetEventNumber },
+  { latestOnly, targetEventNumber, useRunScopedHistory, runFetchDelayMs },
 ) {
+  if (targetEventNumber !== null) {
+    const runRows = await multiGet(
+      client,
+      `/v1/events/${eventId}/runs/${targetEventNumber}/volunteers`,
+      {},
+      'Volunteers',
+      'VolunteersRange',
+    );
+    return runRows;
+  }
+
+  if (latestOnly) {
+    const latestRunId = await fetchLatestRunId(client, eventId);
+    if (latestRunId === null) return [];
+
+    const runRows = await multiGet(
+      client,
+      `/v1/events/${eventId}/runs/${latestRunId}/volunteers`,
+      {},
+      'Volunteers',
+      'VolunteersRange',
+    );
+    return runRows;
+  }
+
+  if (useRunScopedHistory) {
+    const runIds = await fetchRunIds(client, eventId);
+    console.log(
+      `  Using run-scoped volunteers fetch across ${runIds.length} runs for event ${eventId}.`,
+    );
+    return fetchRowsByRunIds(client, eventId, runIds, {
+      dataType: 'volunteers',
+      dataKey: 'Volunteers',
+      rangeKey: 'VolunteersRange',
+      delayMs: runFetchDelayMs,
+    });
+  }
+
   const limit = 100;
   let offset = 0;
   let allRows = [];
@@ -250,24 +424,6 @@ async function fetchEventVolunteers(
       if (hasOlderDates) {
         allRows = allRows.filter(r => toDateString(r.EventDate) === newestDate);
         break;
-      }
-    }
-
-    if (targetEventNumber !== null) {
-      const runIds = rows
-        .map(r => parseInt(r.RunId, 10))
-        .filter(n => Number.isFinite(n));
-
-      if (runIds.length > 0) {
-        const minRunId = Math.min(...runIds);
-        const foundTarget = runIds.includes(targetEventNumber);
-
-        if (minRunId < targetEventNumber || foundTarget) {
-          allRows = allRows.filter(
-            r => parseInt(r.RunId, 10) === targetEventNumber,
-          );
-          break;
-        }
       }
     }
 
@@ -331,6 +487,7 @@ const {
   TARGET_EVENT_NUMBER,
   SCRAPE_ALL_EVENTS,
   SCRAPE_MAX_EVENTS,
+  RUN_FETCH_DELAY_MS,
 } = process.env;
 
 const SHOULD_RUN_JUNIOR = RUN_JUNIOR === 'true';
@@ -340,6 +497,9 @@ const TARGET_EVENT_NUMBER_INT = TARGET_EVENT_NUMBER
   : null;
 const SCRAPE_ALL = SCRAPE_ALL_EVENTS === 'true';
 const MAX_EVENTS = SCRAPE_MAX_EVENTS ? parseInt(SCRAPE_MAX_EVENTS, 10) : null;
+const RUN_FETCH_DELAY_MS_INT = RUN_FETCH_DELAY_MS
+  ? parseInt(RUN_FETCH_DELAY_MS, 10)
+  : 250;
 
 // ─── BigQuery Schemas ─────────────────────────────────────────────────────────
 const RESULTS_SCHEMA = [
@@ -471,20 +631,7 @@ async function ensureColumnExists(tableId, columnDef) {
 }
 
 // ─── Query latest stored date for an event ───────────────────────────────────
-async function getLatestStoredDate(tableId, eventName) {
-  const query = [
-    `SELECT MAX(event_date) AS latest_date`,
-    `FROM \`${GCP_PROJECT_ID}.${BIGQUERY_DATASET_ID}.${tableId}\``,
-    `WHERE event_name = @eventName`,
-  ].join(' ');
-
-  const [rows] = await bq.query({ query, params: { eventName } });
-  const raw = rows[0] && rows[0].latest_date;
-  // BigQuery DATE values come back as { value: 'YYYY-MM-DD' }
-  return (raw && (raw.value || raw)) || null;
-}
-
-async function getLatestStoredDateForEvent(tableId, eventNumber) {
+async function getLatestStoredDate(tableId, eventNumber) {
   const query = [
     `SELECT MAX(event_date) AS latest_date`,
     `FROM \`${GCP_PROJECT_ID}.${BIGQUERY_DATASET_ID}.${tableId}\``,
@@ -493,6 +640,7 @@ async function getLatestStoredDateForEvent(tableId, eventNumber) {
 
   const [rows] = await bq.query({ query, params: { eventNumber } });
   const raw = rows[0] && rows[0].latest_date;
+  // BigQuery DATE values come back as { value: 'YYYY-MM-DD' }
   return (raw && (raw.value || raw)) || null;
 }
 
@@ -601,6 +749,21 @@ function mapVolunteerRoleIdsCsv(roleIds) {
   return roleIds.join(',');
 }
 
+function summarizeRawRowsByEventDate(rawRows) {
+  const counts = new Map();
+
+  for (const row of rawRows) {
+    const eventDate = toDateString(row.EventDate);
+    if (!eventDate) continue;
+    counts.set(eventDate, (counts.get(eventDate) || 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([eventDate, count]) => `${eventDate}: ${count}`)
+    .join(', ');
+}
+
 // ─── Batch-insert rows into a BigQuery table ─────────────────────────────────
 async function insertRows(tableId, rows, idFn) {
   if (rows.length === 0) {
@@ -658,11 +821,16 @@ async function processEvent({
     await getEvent(client, eventId);
   console.log(`[${label}] Event: "${eventDisplayName}" (${eventShortName})`);
 
+  const useRunScopedHistory =
+    SCRAPE_ALL && !SHOULD_FETCH_LATEST_ONLY && TARGET_EVENT_NUMBER_INT === null;
+
   // ── Historical volunteers ───────────────────────────────────────────────
   console.log(`[${label}] Fetching volunteer history for event ${eventId} ...`);
   const rawVolunteers = await fetchEventVolunteers(client, eventId, {
     latestOnly: SHOULD_FETCH_LATEST_ONLY,
     targetEventNumber: TARGET_EVENT_NUMBER_INT,
+    useRunScopedHistory,
+    runFetchDelayMs: RUN_FETCH_DELAY_MS_INT,
   });
   console.log(
     `  Retrieved ${rawVolunteers.length} total volunteer rows from API.`,
@@ -676,7 +844,7 @@ async function processEvent({
   let volunteersToInsertRaw = rawVolunteers;
 
   if (!SCRAPE_ALL) {
-    const latestVolunteerDate = await getLatestStoredDateForEvent(
+    const latestVolunteerDate = await getLatestStoredDate(
       volunteersTable,
       parseInt(eventId, 10),
     );
@@ -776,6 +944,8 @@ async function processEvent({
   const rawResults = await fetchEventResults(client, eventId, {
     latestOnly: SHOULD_FETCH_LATEST_ONLY,
     targetEventNumber: TARGET_EVENT_NUMBER_INT,
+    useRunScopedHistory,
+    runFetchDelayMs: RUN_FETCH_DELAY_MS_INT,
   });
   console.log(`  Retrieved ${rawResults.length} total result rows from API.`);
 
@@ -784,7 +954,7 @@ async function processEvent({
   if (!SCRAPE_ALL) {
     const latestDate = await getLatestStoredDate(
       resultsTable,
-      eventDisplayName,
+      parseInt(eventId, 10),
     );
     if (latestDate) {
       // Include the latest stored date so corrections for that event day are refreshed.
@@ -797,6 +967,13 @@ async function processEvent({
     } else {
       console.log(`  No existing data found – performing full load.`);
     }
+  }
+
+  const resultsRefreshByDate = summarizeRawRowsByEventDate(toInsert);
+  if (resultsRefreshByDate) {
+    console.log(
+      `  Results rows to refresh by event date: ${resultsRefreshByDate}`,
+    );
   }
 
   if (MAX_EVENTS) {

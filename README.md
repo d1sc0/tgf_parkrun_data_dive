@@ -9,12 +9,14 @@ Syncs Parkrun event results and historical volunteer data into BigQuery for anal
 3. In incremental mode, refreshes only recent dates.
 4. Before insert, deletes existing rows for the same event number and event date(s) so data is overwritten, not duplicated.
 5. Writes into BigQuery tables for main event and, optionally, junior event.
+6. Processes run results first, then processes volunteers.
 
 Volunteer role fields:
 
+- run_id: run instance number from the API row
 - task_id: first volunteer role ID for the row
 - task_ids: comma-separated list of all volunteer role IDs for the row
-- task_name: comma-separated role names resolved from roster task metadata
+- task_name: comma-separated role names resolved from run-scoped roster metadata (`/v1/events/{eventId}/runs/{runId}/rosters`)
 
 ## BigQuery tables
 

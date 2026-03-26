@@ -77,9 +77,32 @@ function makeClient(token) {
   });
 }
 
-/** Fetch all pages from a run-scoped results endpoint. */
-async function fetchAllPages(client, url) {
-  const firstRes = await client.get(url, { params: { limit: 100, offset: 0 } });
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Fetch all pages from a run-scoped results endpoint.
+ * clientRef is { current: axiosInstance } so retry logic can swap in a fresh client.
+ * On HTTP 403, waits 100 seconds, re-authenticates, and retries once.
+ */
+async function fetchAllPages(clientRef, url, { retryCount = 0 } = {}) {
+  let firstRes;
+  try {
+    firstRes = await clientRef.current.get(url, {
+      params: { limit: 100, offset: 0 },
+    });
+  } catch (err) {
+    if (err?.response?.status === 403 && retryCount < 1) {
+      console.warn(
+        `  403 on first page — waiting 100s then re-authenticating...`,
+      );
+      await sleep(100_000);
+      const newToken = await parkrunAuth();
+      clientRef.current = makeClient(newToken);
+      return fetchAllPages(clientRef, url, { retryCount: retryCount + 1 });
+    }
+    throw err;
+  }
+
   const range = firstRes.data['Content-Range']?.ResultsRange?.[0];
   let rows = firstRes.data.data?.Results || [];
 
@@ -95,9 +118,26 @@ async function fetchAllPages(client, url) {
   }
 
   // Fetch all remaining pages concurrently
-  const responses = await Promise.all(
-    offsets.map(offset => client.get(url, { params: { limit: 100, offset } })),
-  );
+  let responses;
+  try {
+    responses = await Promise.all(
+      offsets.map(offset =>
+        clientRef.current.get(url, { params: { limit: 100, offset } }),
+      ),
+    );
+  } catch (err) {
+    if (err?.response?.status === 403 && retryCount < 1) {
+      console.warn(
+        `  403 on paginated fetch — waiting 100s then re-authenticating...`,
+      );
+      await sleep(100_000);
+      const newToken = await parkrunAuth();
+      clientRef.current = makeClient(newToken);
+      return fetchAllPages(clientRef, url, { retryCount: retryCount + 1 });
+    }
+    throw err;
+  }
+
   for (const res of responses) {
     rows = rows.concat(res.data.data?.Results || []);
   }
@@ -225,7 +265,8 @@ async function main() {
   // Authenticate
   console.log('\nAuthenticating with Parkrun API...');
   const token = await parkrunAuth();
-  const client = makeClient(token);
+  // Use a mutable ref so 403-retry logic can swap in a fresh client
+  const clientRef = { current: makeClient(token) };
   console.log('Authenticated.\n');
 
   let totalInserted = 0;
@@ -239,7 +280,7 @@ async function main() {
       `Fetching run_id=${runId} (${eventDate}), looking for position(s): ${[...positionSet].sort((a, b) => a - b).join(', ')}`,
     );
 
-    const rawRows = await fetchAllPages(client, url);
+    const rawRows = await fetchAllPages(clientRef, url);
     console.log(`  API returned ${rawRows.length} row(s) for run_id=${runId}`);
 
     const positionMap = new Map(

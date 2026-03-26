@@ -1,0 +1,237 @@
+# Parkrun vs BigQuery Count Comparison Report
+
+Generated: 2026-03-26T16:12:06.337Z
+
+## PARKRUN (event_id=2927)
+
+Summary of missing events
+- missing_on_page_count: 0
+- missing_in_bq_count: 0
+
+(none)
+
+Finishers count differences
+| run_id | bq_finishers | page_finishers |
+| --- | --- | --- |
+| 38 | 164 | 165 |
+| 24 | 240 | 241 |
+
+Volunteers count differences
+| run_id | bq_volunteers | page_volunteers |
+| --- | --- | --- |
+| 158 | 34 | 35 |
+| 85 | 33 | 37 |
+| 77 | 39 | 40 |
+| 76 | 39 | 40 |
+| 48 | 29 | 30 |
+| 40 | 31 | 32 |
+| 36 | 25 | 26 |
+| 34 | 26 | 27 |
+| 27 | 28 | 31 |
+| 23 | 37 | 39 |
+| 22 | 31 | 34 |
+| 11 | 34 | 37 |
+| 2 | 32 | 33 |
+| 1 | 38 | 39 |
+
+## JUNIOR (event_id=3095)
+
+Summary of missing events
+- missing_on_page_count: 0
+- missing_in_bq_count: 187
+
+| type | run_id |
+| --- | --- |
+| missing_in_bq | 187 |
+| missing_in_bq | 186 |
+| missing_in_bq | 185 |
+| missing_in_bq | 184 |
+| missing_in_bq | 183 |
+| missing_in_bq | 182 |
+| missing_in_bq | 181 |
+| missing_in_bq | 180 |
+| missing_in_bq | 179 |
+| missing_in_bq | 178 |
+| missing_in_bq | 177 |
+| missing_in_bq | 176 |
+| missing_in_bq | 175 |
+| missing_in_bq | 174 |
+| missing_in_bq | 173 |
+| missing_in_bq | 172 |
+| missing_in_bq | 171 |
+| missing_in_bq | 170 |
+| missing_in_bq | 169 |
+| missing_in_bq | 168 |
+| missing_in_bq | 167 |
+| missing_in_bq | 166 |
+| missing_in_bq | 165 |
+| missing_in_bq | 164 |
+| missing_in_bq | 163 |
+| missing_in_bq | 162 |
+| missing_in_bq | 161 |
+| missing_in_bq | 160 |
+| missing_in_bq | 159 |
+| missing_in_bq | 158 |
+| missing_in_bq | 157 |
+| missing_in_bq | 156 |
+| missing_in_bq | 155 |
+| missing_in_bq | 154 |
+| missing_in_bq | 153 |
+| missing_in_bq | 152 |
+| missing_in_bq | 151 |
+| missing_in_bq | 150 |
+| missing_in_bq | 149 |
+| missing_in_bq | 148 |
+| missing_in_bq | 147 |
+| missing_in_bq | 146 |
+| missing_in_bq | 145 |
+| missing_in_bq | 144 |
+| missing_in_bq | 143 |
+| missing_in_bq | 142 |
+| missing_in_bq | 141 |
+| missing_in_bq | 140 |
+| missing_in_bq | 139 |
+| missing_in_bq | 138 |
+| missing_in_bq | 137 |
+| missing_in_bq | 136 |
+| missing_in_bq | 135 |
+| missing_in_bq | 134 |
+| missing_in_bq | 133 |
+| missing_in_bq | 132 |
+| missing_in_bq | 131 |
+| missing_in_bq | 130 |
+| missing_in_bq | 129 |
+| missing_in_bq | 128 |
+| missing_in_bq | 127 |
+| missing_in_bq | 126 |
+| missing_in_bq | 125 |
+| missing_in_bq | 124 |
+| missing_in_bq | 123 |
+| missing_in_bq | 122 |
+| missing_in_bq | 121 |
+| missing_in_bq | 120 |
+| missing_in_bq | 119 |
+| missing_in_bq | 118 |
+| missing_in_bq | 117 |
+| missing_in_bq | 116 |
+| missing_in_bq | 115 |
+| missing_in_bq | 114 |
+| missing_in_bq | 113 |
+| missing_in_bq | 112 |
+| missing_in_bq | 111 |
+| missing_in_bq | 110 |
+| missing_in_bq | 109 |
+| missing_in_bq | 108 |
+| missing_in_bq | 107 |
+| missing_in_bq | 106 |
+| missing_in_bq | 105 |
+| missing_in_bq | 104 |
+| missing_in_bq | 103 |
+| missing_in_bq | 102 |
+| missing_in_bq | 101 |
+| missing_in_bq | 100 |
+| missing_in_bq | 99 |
+| missing_in_bq | 98 |
+| missing_in_bq | 97 |
+| missing_in_bq | 96 |
+| missing_in_bq | 95 |
+| missing_in_bq | 94 |
+| missing_in_bq | 93 |
+| missing_in_bq | 92 |
+| missing_in_bq | 91 |
+| missing_in_bq | 90 |
+| missing_in_bq | 89 |
+| missing_in_bq | 88 |
+| missing_in_bq | 87 |
+| missing_in_bq | 86 |
+| missing_in_bq | 85 |
+| missing_in_bq | 84 |
+| missing_in_bq | 83 |
+| missing_in_bq | 82 |
+| missing_in_bq | 81 |
+| missing_in_bq | 80 |
+| missing_in_bq | 79 |
+| missing_in_bq | 78 |
+| missing_in_bq | 77 |
+| missing_in_bq | 76 |
+| missing_in_bq | 75 |
+| missing_in_bq | 74 |
+| missing_in_bq | 73 |
+| missing_in_bq | 72 |
+| missing_in_bq | 71 |
+| missing_in_bq | 70 |
+| missing_in_bq | 69 |
+| missing_in_bq | 68 |
+| missing_in_bq | 67 |
+| missing_in_bq | 66 |
+| missing_in_bq | 65 |
+| missing_in_bq | 64 |
+| missing_in_bq | 63 |
+| missing_in_bq | 62 |
+| missing_in_bq | 61 |
+| missing_in_bq | 60 |
+| missing_in_bq | 59 |
+| missing_in_bq | 58 |
+| missing_in_bq | 57 |
+| missing_in_bq | 56 |
+| missing_in_bq | 55 |
+| missing_in_bq | 54 |
+| missing_in_bq | 53 |
+| missing_in_bq | 52 |
+| missing_in_bq | 51 |
+| missing_in_bq | 50 |
+| missing_in_bq | 49 |
+| missing_in_bq | 48 |
+| missing_in_bq | 47 |
+| missing_in_bq | 46 |
+| missing_in_bq | 45 |
+| missing_in_bq | 44 |
+| missing_in_bq | 43 |
+| missing_in_bq | 42 |
+| missing_in_bq | 41 |
+| missing_in_bq | 40 |
+| missing_in_bq | 39 |
+| missing_in_bq | 38 |
+| missing_in_bq | 37 |
+| missing_in_bq | 36 |
+| missing_in_bq | 35 |
+| missing_in_bq | 34 |
+| missing_in_bq | 33 |
+| missing_in_bq | 32 |
+| missing_in_bq | 31 |
+| missing_in_bq | 30 |
+| missing_in_bq | 29 |
+| missing_in_bq | 28 |
+| missing_in_bq | 27 |
+| missing_in_bq | 26 |
+| missing_in_bq | 25 |
+| missing_in_bq | 24 |
+| missing_in_bq | 23 |
+| missing_in_bq | 22 |
+| missing_in_bq | 21 |
+| missing_in_bq | 20 |
+| missing_in_bq | 19 |
+| missing_in_bq | 18 |
+| missing_in_bq | 17 |
+| missing_in_bq | 16 |
+| missing_in_bq | 15 |
+| missing_in_bq | 14 |
+| missing_in_bq | 13 |
+| missing_in_bq | 12 |
+| missing_in_bq | 11 |
+| missing_in_bq | 10 |
+| missing_in_bq | 9 |
+| missing_in_bq | 8 |
+| missing_in_bq | 7 |
+| missing_in_bq | 6 |
+| missing_in_bq | 5 |
+| missing_in_bq | 4 |
+| missing_in_bq | 3 |
+| missing_in_bq | 2 |
+| missing_in_bq | 1 |
+
+Finishers count differences
+(none)
+
+Volunteers count differences
+(none)

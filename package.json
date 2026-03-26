@@ -9,6 +9,7 @@
     "setup:bq": "node create-bigquery-tables.js",
     "publish:views": "node publish-bigquery-views.js",
     "backfill": "node backfill-missing.js",
+    "compare:bq": "node compare-bq-vs-eventhistory.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

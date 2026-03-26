@@ -35,6 +35,15 @@ When you run npm run publish:views, each SQL file is published as a view using t
 - 15_daily_qa_latest_run_completeness.sql -> \_15_daily_qa_latest_run_completeness
 - 16_headline_stats.sql -> \_16_headline_stats
 - 17_missing_positions.sql -> \_17_missing_positions
+- 18_run_time_stats_by_run_id.sql -> \_18_run_time_stats_by_run_id
+- 19_attendance_by_run_id.sql -> \_19_attendance_by_run_id
+- 20_finish_time_stats_by_age_range_gender.sql -> \_20_finish_time_stats_by_age_range_gender
+- 21_top_20_fastest_male_athletes.sql -> \_21_top_20_fastest_male_athletes
+- 22_top_20_fastest_female_athletes.sql -> \_22_top_20_fastest_female_athletes
+- 23_top_20_attendees.sql -> \_23_top_20_attendees
+- 24_top_20_volunteers.sql -> \_24_top_20_volunteers
+- 25_top_20_clubs_by_finishers.sql -> \_25_top_20_clubs_by_finishers
+- 26_top_20_home_parkruns_by_finishers.sql -> \_26_top_20_home_parkruns_by_finishers
 
 Current summary metrics additions:
 

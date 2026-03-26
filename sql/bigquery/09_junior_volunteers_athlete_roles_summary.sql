@@ -28,13 +28,31 @@ roles AS (
   UNNEST(SPLIT(COALESCE(task_name, ''), ',')) AS role
   WHERE TRIM(role) <> ''
   GROUP BY athlete_id
+),
+athlete_metrics AS (
+  SELECT
+    athlete_id,
+    MAX(parkrun_club_membership) AS highest_parkrun_club_membership_number,
+    MAX(volunteer_club_membership) AS highest_volunteer_club_membership_number,
+    MAX(run_total) AS highest_run_total,
+    MAX(vol_count) AS highest_volunteer_count,
+    COUNTIF(was_genuine_pb = TRUE) AS genuine_pb_count
+  FROM parkrun_data.junior_results
+  WHERE athlete_id IS NOT NULL
+  GROUP BY athlete_id
 )
 SELECT
   p.athlete_id,
   p.latest_name.first_name AS first_name,
   p.latest_name.last_name AS last_name,
   p.appearances_in_junior_volunteers,
-  r.roles_assigned
+  r.roles_assigned,
+  m.highest_parkrun_club_membership_number,
+  m.highest_volunteer_club_membership_number,
+  m.highest_run_total,
+  m.highest_volunteer_count,
+  m.genuine_pb_count
 FROM profile p
 LEFT JOIN roles r USING (athlete_id)
+LEFT JOIN athlete_metrics m USING (athlete_id)
 ORDER BY p.appearances_in_junior_volunteers DESC, p.athlete_id;

@@ -891,7 +891,7 @@ function parseVolunteerRoleIds(rawRoleIds) {
 }
 
 function mapVolunteerRoleNames(roleIds, roleNameById) {
-  if (roleIds.length === 0) return null;
+  if (roleIds.length === 0) return 'No role recorded';
   const names = roleIds.map(id => roleNameById.get(id) || `Role ${id}`);
   return names.join(', ');
 }

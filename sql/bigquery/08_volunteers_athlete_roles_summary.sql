@@ -46,7 +46,7 @@ SELECT
   p.latest_name.first_name AS first_name,
   p.latest_name.last_name AS last_name,
   p.appearances_in_volunteers,
-  r.roles_assigned,
+  COALESCE(r.roles_assigned, 'No role recorded') AS roles_assigned,
   m.highest_parkrun_club_membership_number,
   m.highest_volunteer_club_membership_number,
   m.highest_run_total,

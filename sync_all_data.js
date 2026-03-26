@@ -132,6 +132,19 @@ function mapVolunteerRoleIdsCsv(roleIds) {
   return roleIds.join(',');
 }
 
+function mapVolunteerRoleNames(roleIds, raw) {
+  const directName = raw.TaskName || raw.VolunteerRoleName || raw.VolunteerRole;
+  if (directName && String(directName).trim() !== '') {
+    return String(directName).trim();
+  }
+
+  if (roleIds.length > 0) {
+    return roleIds.map(id => `Role ${id}`).join(', ');
+  }
+
+  return 'No role recorded';
+}
+
 async function parkrunAuth(username, password) {
   const body = qs.stringify({
     username,
@@ -506,8 +519,7 @@ function mapResultRow(raw) {
 
 function mapVolunteerRow(raw) {
   const roleIds = parseVolunteerRoleIds(raw.volunteerRoleIds);
-  const taskName =
-    raw.TaskName || raw.VolunteerRoleName || raw.VolunteerRole || null;
+  const taskName = mapVolunteerRoleNames(roleIds, raw);
 
   return {
     roster_id: parseNullableInt(raw.VolID),

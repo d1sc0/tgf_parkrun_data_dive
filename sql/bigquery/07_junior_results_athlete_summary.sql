@@ -65,8 +65,8 @@ SELECT
     WHEN fastest_seconds IS NULL THEN NULL
     ELSE FORMAT(
       '%02d:%02d:%02d',
-      CAST(fastest_seconds / 3600 AS INT64),
-      CAST(MOD(fastest_seconds, 3600) / 60 AS INT64),
+      CAST(DIV(fastest_seconds, 3600) AS INT64),
+      CAST(DIV(MOD(fastest_seconds, 3600), 60) AS INT64),
       CAST(MOD(fastest_seconds, 60) AS INT64)
     )
   END AS fastest_time,

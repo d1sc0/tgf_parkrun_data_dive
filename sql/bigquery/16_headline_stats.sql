@@ -145,35 +145,35 @@ SELECT
 
   -- 13 parkrun fastest/slowest/mean
   FORMAT('%02d:%02d:%02d',
-    CAST(pt.fastest_seconds / 3600 AS INT64),
-    CAST(MOD(pt.fastest_seconds, 3600) / 60 AS INT64),
+    CAST(DIV(pt.fastest_seconds, 3600) AS INT64),
+    CAST(DIV(MOD(pt.fastest_seconds, 3600), 60) AS INT64),
     CAST(MOD(pt.fastest_seconds, 60) AS INT64)
   ) AS parkrun_fastest_time,
   FORMAT('%02d:%02d:%02d',
-    CAST(pt.slowest_seconds / 3600 AS INT64),
-    CAST(MOD(pt.slowest_seconds, 3600) / 60 AS INT64),
+    CAST(DIV(pt.slowest_seconds, 3600) AS INT64),
+    CAST(DIV(MOD(pt.slowest_seconds, 3600), 60) AS INT64),
     CAST(MOD(pt.slowest_seconds, 60) AS INT64)
   ) AS parkrun_slowest_time,
   FORMAT('%02d:%02d:%02d',
-    CAST(CAST(ROUND(pt.mean_seconds) AS INT64) / 3600 AS INT64),
-    CAST(MOD(CAST(ROUND(pt.mean_seconds) AS INT64), 3600) / 60 AS INT64),
+    CAST(DIV(CAST(ROUND(pt.mean_seconds) AS INT64), 3600) AS INT64),
+    CAST(DIV(MOD(CAST(ROUND(pt.mean_seconds) AS INT64), 3600), 60) AS INT64),
     CAST(MOD(CAST(ROUND(pt.mean_seconds) AS INT64), 60) AS INT64)
   ) AS parkrun_mean_time,
 
   -- 14 junior fastest/slowest/mean
   FORMAT('%02d:%02d:%02d',
-    CAST(jt.fastest_seconds / 3600 AS INT64),
-    CAST(MOD(jt.fastest_seconds, 3600) / 60 AS INT64),
+    CAST(DIV(jt.fastest_seconds, 3600) AS INT64),
+    CAST(DIV(MOD(jt.fastest_seconds, 3600), 60) AS INT64),
     CAST(MOD(jt.fastest_seconds, 60) AS INT64)
   ) AS junior_fastest_time,
   FORMAT('%02d:%02d:%02d',
-    CAST(jt.slowest_seconds / 3600 AS INT64),
-    CAST(MOD(jt.slowest_seconds, 3600) / 60 AS INT64),
+    CAST(DIV(jt.slowest_seconds, 3600) AS INT64),
+    CAST(DIV(MOD(jt.slowest_seconds, 3600), 60) AS INT64),
     CAST(MOD(jt.slowest_seconds, 60) AS INT64)
   ) AS junior_slowest_time,
   FORMAT('%02d:%02d:%02d',
-    CAST(CAST(ROUND(jt.mean_seconds) AS INT64) / 3600 AS INT64),
-    CAST(MOD(CAST(ROUND(jt.mean_seconds) AS INT64), 3600) / 60 AS INT64),
+    CAST(DIV(CAST(ROUND(jt.mean_seconds) AS INT64), 3600) AS INT64),
+    CAST(DIV(MOD(CAST(ROUND(jt.mean_seconds) AS INT64), 3600), 60) AS INT64),
     CAST(MOD(CAST(ROUND(jt.mean_seconds) AS INT64), 60) AS INT64)
   ) AS junior_mean_time,
 

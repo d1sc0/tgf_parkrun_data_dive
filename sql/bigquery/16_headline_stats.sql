@@ -9,6 +9,7 @@ parkrun_base AS (
     event_date,
     finish_time,
     was_pb,
+    was_genuine_pb,
     club_name,
     home_run_name
   FROM parkrun_data.results
@@ -20,6 +21,7 @@ junior_base AS (
     event_date,
     finish_time,
     was_pb,
+    was_genuine_pb,
     club_name,
     home_run_name
   FROM parkrun_data.junior_results
@@ -72,14 +74,16 @@ parkrun_aggs AS (
   SELECT
     COUNT(*) AS records,
     COUNT(DISTINCT run_id) AS total_events,
-    COUNTIF(was_pb = TRUE) AS pb_count
+    COUNTIF(was_pb = TRUE) AS pb_count,
+    COUNTIF(was_genuine_pb = TRUE) AS genuine_pb_count
   FROM parkrun_base
 ),
 junior_aggs AS (
   SELECT
     COUNT(*) AS records,
     COUNT(DISTINCT run_id) AS total_events,
-    COUNTIF(was_pb = TRUE) AS pb_count
+    COUNTIF(was_pb = TRUE) AS pb_count,
+    COUNTIF(was_genuine_pb = TRUE) AS genuine_pb_count
   FROM junior_base
 ),
 parkrun_time_aggs AS (
@@ -186,6 +190,10 @@ SELECT
   j.pb_count AS junior_pb_count,
 
   -- 19-20
+  p.genuine_pb_count AS parkrun_genuine_pb_count,
+  j.genuine_pb_count AS junior_genuine_pb_count,
+
+  -- 21-22
   a.distinct_clubs,
   a.distinct_home_parkruns
 FROM parkrun_aggs p

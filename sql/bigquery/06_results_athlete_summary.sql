@@ -6,8 +6,10 @@ WITH base AS (
     club_name,
     home_run_name,
     parkrun_club_membership,
+    volunteer_club_membership,
     run_total,
     vol_count,
+    was_genuine_pb,
     finish_time,
     updated
   FROM parkrun_data.results
@@ -36,6 +38,11 @@ agg AS (
     athlete_id,
     COUNT(*) AS appearances_in_results,
     MIN(finish_seconds) AS fastest_seconds,
+    COUNTIF(was_genuine_pb = TRUE) AS genuine_pb_count,
+    MAX(parkrun_club_membership) AS highest_parkrun_club_membership_number,
+    MAX(volunteer_club_membership) AS highest_volunteer_club_membership_number,
+    MAX(run_total) AS highest_run_total,
+    MAX(vol_count) AS highest_volunteer_count,
     ARRAY_AGG(
       STRUCT(
         first_name,
@@ -61,6 +68,11 @@ SELECT
   latest_profile.parkrun_club_membership AS parkrun_club_membership,
   latest_profile.run_total AS total_run_count,
   latest_profile.vol_count AS total_vol_count,
+  highest_parkrun_club_membership_number,
+  highest_volunteer_club_membership_number,
+  highest_run_total,
+  highest_volunteer_count,
+  genuine_pb_count,
   CASE
     WHEN fastest_seconds IS NULL THEN NULL
     ELSE FORMAT(

@@ -508,8 +508,13 @@ async function fetchVolunteerRoleNameMapByRunIds(client, eventId, runIds) {
     const rows = rosterRows || [];
     for (const row of rows) {
       const rawId =
-        row?.taskid ?? row?.taskId ?? row?.TaskId ?? row?.TaskID ??
-        row?.roleId ?? row?.RoleId ?? row?.RoleID;
+        row?.taskid ??
+        row?.taskId ??
+        row?.TaskId ??
+        row?.TaskID ??
+        row?.roleId ??
+        row?.RoleId ??
+        row?.RoleID;
       const id = rawId != null ? parseInt(rawId, 10) : null;
       const name = firstNonEmptyString([
         row?.TaskName,

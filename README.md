@@ -2,6 +2,10 @@
 
 Syncs Parkrun event results and historical volunteer data into BigQuery for analysis.
 
+## Maintainer Reference
+
+- [docs/repo-operations-reference.md](docs/repo-operations-reference.md)
+
 ## How it works
 
 1. Authenticates with the Parkrun API using your event account credentials.

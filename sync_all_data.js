@@ -27,6 +27,7 @@ const {
   JUNIOR_PASSWORD,
   JUNIOR_EVENT_ID,
   RUN_JUNIOR = 'false',
+  VOLUNTEERS_ONLY = 'false',
   GET_ALL_PAGE_CONCURRENCY = '1',
   GET_ALL_START_OFFSET = '0',
   GET_ALL_RETRY_403_MS = '100000',
@@ -34,6 +35,7 @@ const {
 } = process.env;
 
 const SHOULD_RUN_JUNIOR = RUN_JUNIOR === 'true';
+const SHOULD_RUN_VOLUNTEERS_ONLY = VOLUNTEERS_ONLY === 'true';
 const PAGE_SIZE = 100;
 const PAGE_CONCURRENCY = Math.max(
   1,
@@ -557,75 +559,86 @@ async function processEvent({
   eventId,
   resultsTable,
   volunteersTable,
+  volunteersOnly = false,
 }) {
   console.log(`\n[${label}] Authenticating as ${username}...`);
   const token = await parkrunAuth(username.trim(), password.trim());
   const client = makeAuthedClient(token);
 
   const eventNumberInt = parseInt(eventId, 10);
-  const resultsDeleted = await deleteRowsForEvent(resultsTable, eventNumberInt);
-  const resultKeyFn = r =>
-    `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.run_id}-${r.finish_position ?? 'null'}`;
-  let existingResultKeys = null;
-
-  if (!resultsDeleted) {
-    existingResultKeys = await getExistingKeysForEvent(
-      resultsTable,
-      eventNumberInt,
-      `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(run_id AS STRING), '-', IFNULL(CAST(finish_position AS STRING), 'null'))`,
-    );
-  }
-
   let insertedResults = 0;
 
-  console.log(
-    `[${label}] Fetching results and writing pages directly to ${resultsTable}...`,
-  );
-  const resultsFetchSummary = await fetchPaged(
-    client,
-    `/v1/events/${eventId}/results`,
-    {
-      dataKey: 'Results',
-      rangeKey: 'ResultsRange',
-      label: `[${label}] results`,
-      onPage: async (rows, pageMeta) => {
-        const mappedPageRows = rows
-          .map(mapResultRow)
-          .filter(r => r.run_id != null && r.event_date);
+  if (!volunteersOnly) {
+    const resultsDeleted = await deleteRowsForEvent(
+      resultsTable,
+      eventNumberInt,
+    );
+    const resultKeyFn = r =>
+      `${r.event_number}-${r.event_date}-${r.athlete_id}-${r.run_id}-${r.finish_position ?? 'null'}`;
+    let existingResultKeys = null;
 
-        let pageToInsert = mappedPageRows;
-        if (existingResultKeys) {
-          pageToInsert = mappedPageRows.filter(r => {
-            const key = resultKeyFn(r);
-            if (existingResultKeys.has(key)) return false;
-            existingResultKeys.add(key);
-            return true;
-          });
-        }
+    if (!resultsDeleted) {
+      existingResultKeys = await getExistingKeysForEvent(
+        resultsTable,
+        eventNumberInt,
+        `CONCAT(CAST(event_number AS STRING), '-', CAST(event_date AS STRING), '-', CAST(athlete_id AS STRING), '-', CAST(run_id AS STRING), '-', IFNULL(CAST(finish_position AS STRING), 'null'))`,
+      );
+    }
 
-        if (pageToInsert.length > 0) {
-          const insertedThisPage = await insertRows(resultsTable, pageToInsert);
-          insertedResults += insertedThisPage;
-          console.log(
-            `[${label}] results page ${pageMeta.fetchedPages}/${pageMeta.totalPages}: inserted ${insertedThisPage} row(s), total inserted ${insertedResults}.`,
-          );
-        }
+    console.log(
+      `[${label}] Fetching results and writing pages directly to ${resultsTable}...`,
+    );
+    const resultsFetchSummary = await fetchPaged(
+      client,
+      `/v1/events/${eventId}/results`,
+      {
+        dataKey: 'Results',
+        rangeKey: 'ResultsRange',
+        label: `[${label}] results`,
+        onPage: async (rows, pageMeta) => {
+          const mappedPageRows = rows
+            .map(mapResultRow)
+            .filter(r => r.run_id != null && r.event_date);
 
-        if (
-          pageMeta.fetchedPages % PROGRESS_EVERY_PAGES === 0 ||
-          pageMeta.fetchedPages === pageMeta.totalPages
-        ) {
-          console.log(
-            `[${label}] results insert progress: ${insertedResults} inserted after ${pageMeta.fetchedPages}/${pageMeta.totalPages} page(s).`,
-          );
-        }
+          let pageToInsert = mappedPageRows;
+          if (existingResultKeys) {
+            pageToInsert = mappedPageRows.filter(r => {
+              const key = resultKeyFn(r);
+              if (existingResultKeys.has(key)) return false;
+              existingResultKeys.add(key);
+              return true;
+            });
+          }
+
+          if (pageToInsert.length > 0) {
+            const insertedThisPage = await insertRows(
+              resultsTable,
+              pageToInsert,
+            );
+            insertedResults += insertedThisPage;
+            console.log(
+              `[${label}] results page ${pageMeta.fetchedPages}/${pageMeta.totalPages}: inserted ${insertedThisPage} row(s), total inserted ${insertedResults}.`,
+            );
+          }
+
+          if (
+            pageMeta.fetchedPages % PROGRESS_EVERY_PAGES === 0 ||
+            pageMeta.fetchedPages === pageMeta.totalPages
+          ) {
+            console.log(
+              `[${label}] results insert progress: ${insertedResults} inserted after ${pageMeta.fetchedPages}/${pageMeta.totalPages} page(s).`,
+            );
+          }
+        },
       },
-    },
-  );
+    );
 
-  console.log(
-    `[${label}] Results complete. Retrieved ${resultsFetchSummary.totalRows} row(s), inserted ${insertedResults}.`,
-  );
+    console.log(
+      `[${label}] Results complete. Retrieved ${resultsFetchSummary.totalRows} row(s), inserted ${insertedResults}.`,
+    );
+  } else {
+    console.log(`[${label}] Skipping results (VOLUNTEERS_ONLY=true).`);
+  }
 
   const volunteersDeleted = await deleteRowsForEvent(
     volunteersTable,
@@ -694,14 +707,21 @@ async function processEvent({
     `[${label}] Volunteers complete. Retrieved ${volunteerFetchSummary.totalRows} row(s), inserted ${insertedVolunteers}.`,
   );
 
-  console.log(
-    `[${label}] Done. Inserted ${insertedResults} results and ${insertedVolunteers} volunteers.`,
-  );
+  if (volunteersOnly) {
+    console.log(
+      `[${label}] Done. Inserted ${insertedVolunteers} volunteer(s) (results skipped).`,
+    );
+  } else {
+    console.log(
+      `[${label}] Done. Inserted ${insertedResults} result(s) and ${insertedVolunteers} volunteer(s).`,
+    );
+  }
 }
 
 async function main() {
   console.log('Starting sync_all_data.js...');
   console.log(`RUN_JUNIOR=${RUN_JUNIOR}`);
+  console.log(`VOLUNTEERS_ONLY=${VOLUNTEERS_ONLY}`);
   console.log(`GET_ALL_PAGE_CONCURRENCY=${PAGE_CONCURRENCY}`);
   console.log(`GET_ALL_START_OFFSET=${START_OFFSET}`);
   console.log(`GET_ALL_RETRY_403_MS=${RETRY_403_MS}`);
@@ -716,6 +736,7 @@ async function main() {
     eventId: PARKRUN_EVENT_ID,
     resultsTable: BIGQUERY_RESULTS_TABLE,
     volunteersTable: BIGQUERY_VOLUNTEERS_TABLE,
+    volunteersOnly: SHOULD_RUN_VOLUNTEERS_ONLY,
   });
 
   if (SHOULD_RUN_JUNIOR) {
@@ -726,6 +747,7 @@ async function main() {
       eventId: JUNIOR_EVENT_ID,
       resultsTable: BIGQUERY_JUNIOR_RESULTS_TABLE,
       volunteersTable: BIGQUERY_JUNIOR_VOLUNTEERS_TABLE,
+      volunteersOnly: SHOULD_RUN_VOLUNTEERS_ONLY,
     });
   }
 

@@ -9,7 +9,6 @@
     "setup:bq": "node utilities/create-bigquery-tables.js",
     "publish:views": "node utilities/publish-bigquery-views.js",
     "backfill": "node utilities/backfill-missing.js",
-    "reload:volunteer-history": "node utilities/reload-volunteer-history.js",
     "compare:bq": "node utilities/compare-bq-vs-eventhistory.js --out utilities/compare-bq-output.json --text-out utilities/compare-bq-report.txt",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

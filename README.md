@@ -191,6 +191,8 @@ Useful environment variables for `sync_all_data.js`:
 - `RUN_JUNIOR` (default `false`):
   - `false` runs only main event tables.
   - `true` runs main + junior tables.
+- `VOLUNTEERS_ONLY` (default `false`):
+  - `true` skips results entirely and only reloads the volunteers table. Useful for repairing volunteer role names without touching results.
 - `GET_ALL_PAGE_CONCURRENCY` (default `1`): number of API pages fetched in parallel.
 - `GET_ALL_START_OFFSET` (default `0`): resume/pickup offset for pagination; normalized to page size (100).
 - `GET_ALL_RETRY_403_MS` (default `100000`): wait time before retrying a request that returns HTTP 403.
@@ -202,6 +204,10 @@ Example runs:
   - `RUN_JUNIOR=false node sync_all_data.js`
 - Main + junior:
   - `RUN_JUNIOR=true node sync_all_data.js`
+- Volunteers only (repair volunteer role names):
+  - `VOLUNTEERS_ONLY=true node sync_all_data.js`
+- Volunteers only for main + junior:
+  - `VOLUNTEERS_ONLY=true RUN_JUNIOR=true node sync_all_data.js`
 - Resume from offset 3500:
   - `GET_ALL_START_OFFSET=3500 node sync_all_data.js`
 - Increase throughput carefully:
@@ -212,31 +218,7 @@ Direct utility script paths (if not using npm scripts):
 - `node utilities/create-bigquery-tables.js`
 - `node utilities/publish-bigquery-views.js`
 - `node utilities/backfill-missing.js --input missing.json`
-- `node utilities/reload-volunteer-history.js --dry-run`
 - `node utilities/compare-bq-vs-eventhistory.js --out utilities/compare-bq-output.json --text-out utilities/compare-bq-report.txt`
-
-## Volunteer history reload
-
-Use `utilities/reload-volunteer-history.js` when the volunteer-role issue is broad enough that a full historical reload is safer than targeting only affected runs.
-
-What it does:
-
-1. Authenticates once and reads the full historical volunteers feed via `/v1/volunteers?eventNumber={eventId}`.
-2. Rebuilds `task_name` for every row, preferring role names present directly on volunteer rows.
-3. Uses run-scoped roster metadata only for rows that still have no direct role name.
-4. In non-dry-run mode, deletes the current event's volunteer rows from BigQuery and repopulates them.
-5. Emits an optional JSON report with unresolved historic role IDs still returned by the API.
-
-Examples:
-
-- Dry-run the full main-event reload:
-  - `npm run reload:volunteer-history -- --dry-run --report utilities/reload-volunteer-history-report.json`
-- Dry-run a small sample first:
-  - `npm run reload:volunteer-history -- --dry-run --max-pages 5`
-- Run the full write-enabled reload:
-  - `npm run reload:volunteer-history -- --report utilities/reload-volunteer-history-report.json`
-- Run against junior data:
-  - `npm run reload:volunteer-history -- --junior --dry-run`
 
 ## GitHub Actions weekly schedule
 

@@ -382,7 +382,7 @@ async function ensureColumnExists(tableId, columnDef) {
 async function insertRows(tableId, rows) {
   if (rows.length === 0) {
     console.log(`No rows to insert into ${tableId}.`);
-    return;
+    return 0;
   }
 
   const table = bq.dataset(BIGQUERY_DATASET_ID).table(tableId);
@@ -416,13 +416,9 @@ async function insertRows(tableId, rows) {
       }
       throw err;
     }
-
-    if ((i / chunkSize + 1) % 20 === 0 || i + chunkSize >= rows.length) {
-      console.log(
-        `Inserted ${Math.min(i + chunkSize, rows.length)}/${rows.length} into ${tableId}.`,
-      );
-    }
   }
+
+  return rows.length;
 }
 
 async function deleteRowsForEvent(tableId, eventNumber) {
@@ -577,8 +573,11 @@ async function processEvent({
         }
 
         if (pageToInsert.length > 0) {
-          await insertRows(resultsTable, pageToInsert);
-          insertedResults += pageToInsert.length;
+          const insertedThisPage = await insertRows(resultsTable, pageToInsert);
+          insertedResults += insertedThisPage;
+          console.log(
+            `[${label}] results page ${pageMeta.fetchedPages}/${pageMeta.totalPages}: inserted ${insertedThisPage} row(s), total inserted ${insertedResults}.`,
+          );
         }
 
         if (
@@ -639,8 +638,14 @@ async function processEvent({
       }
 
       if (pageToInsert.length > 0) {
-        await insertRows(volunteersTable, pageToInsert);
-        insertedVolunteers += pageToInsert.length;
+        const insertedThisPage = await insertRows(
+          volunteersTable,
+          pageToInsert,
+        );
+        insertedVolunteers += insertedThisPage;
+        console.log(
+          `[${label}] volunteers page ${pageMeta.fetchedPages}/${pageMeta.totalPages}: inserted ${insertedThisPage} row(s), total inserted ${insertedVolunteers}.`,
+        );
       }
 
       if (

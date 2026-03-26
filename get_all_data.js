@@ -389,7 +389,34 @@ async function insertRows(tableId, rows) {
   const chunkSize = 500;
   for (let i = 0; i < rows.length; i += chunkSize) {
     const chunk = rows.slice(i, i + chunkSize);
-    await table.insert(chunk, { raw: true, ignoreUnknownValues: false });
+    const bqRows = chunk.map((row, idx) => ({
+      insertId:
+        `${tableId}-${i + idx}-` +
+        `${row.event_number ?? 'na'}-${row.event_date ?? 'na'}-` +
+        `${row.run_id ?? row.roster_id ?? 'na'}-${row.athlete_id ?? 'na'}`,
+      json: row,
+    }));
+
+    try {
+      await table.insert(bqRows, {
+        raw: true,
+        skipInvalidRows: false,
+        ignoreUnknownValues: false,
+      });
+    } catch (err) {
+      if (err?.name === 'PartialFailureError' && Array.isArray(err.errors)) {
+        const sample = err.errors.slice(0, 3).map(e => ({
+          row: e.row,
+          errors: e.errors,
+        }));
+        console.error(
+          `BigQuery partial failure for ${tableId} (first 3 of ${err.errors.length}):`,
+          JSON.stringify(sample, null, 2),
+        );
+      }
+      throw err;
+    }
+
     if ((i / chunkSize + 1) % 20 === 0 || i + chunkSize >= rows.length) {
       console.log(
         `Inserted ${Math.min(i + chunkSize, rows.length)}/${rows.length} into ${tableId}.`,

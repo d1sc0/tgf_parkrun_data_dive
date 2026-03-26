@@ -808,7 +808,16 @@ async function getExistingKeysForEventDates(
 
 // Map raw API row → BigQuery row ──────────────────────────────────────────
 function mapResultRow(raw) {
-  const athleteId = parseInt(raw.AthleteID, 10);
+  const rawAthleteId =
+    raw.AthleteID != null && raw.AthleteID !== ''
+      ? parseInt(raw.AthleteID, 10)
+      : null;
+  // Treat null/missing athleteId as unknown athlete (2214)
+  const isUnknown =
+    rawAthleteId === 2214 ||
+    rawAthleteId == null ||
+    !Number.isFinite(rawAthleteId);
+  const athleteId = Number.isFinite(rawAthleteId) ? rawAthleteId : 2214;
   const runTotal =
     raw.RunTotal != null && raw.RunTotal !== ''
       ? parseInt(raw.RunTotal, 10)
@@ -853,7 +862,7 @@ function mapResultRow(raw) {
     was_pb: parseBool(raw.WasPbRun),
     was_genuine_pb: parseBool(raw.GenuinePB),
     was_first_run_at_event: parseBool(raw.FirstTimer),
-    is_unknown_athlete: athleteId === 2214,
+    is_unknown_athlete: isUnknown,
     club_name: raw.ClubName || null,
     home_run_name: raw.HomeRunName || null,
     run_total: Number.isFinite(runTotal) ? runTotal : null,

@@ -182,12 +182,11 @@ function buildTaskNameByAthleteId(rosterRows) {
       row?.volunteerRoleName,
     ]);
 
-    if (
-      Number.isFinite(athleteId) &&
-      name &&
-      !taskNameByAthleteId.has(athleteId)
-    ) {
-      taskNameByAthleteId.set(athleteId, name);
+    if (Number.isFinite(athleteId) && name) {
+      if (!taskNameByAthleteId.has(athleteId)) {
+        taskNameByAthleteId.set(athleteId, new Set());
+      }
+      taskNameByAthleteId.get(athleteId).add(name);
     }
   }
 
@@ -616,6 +615,8 @@ function mapResultRow(raw) {
 function mapVolunteerRow(raw, taskNameByAthleteId) {
   const roleIds = parseVolunteerRoleIds(raw.volunteerRoleIds);
   const athleteId = parseNullableInt(raw.AthleteID);
+  const allNames = new Set();
+
   const directName = firstNonEmptyString([
     raw?.TaskName,
     raw?.taskName,
@@ -625,16 +626,24 @@ function mapVolunteerRow(raw, taskNameByAthleteId) {
     raw?.VolunteerRole,
     raw?.volunteerRole,
   ]);
-  const rosterName =
-    taskNameByAthleteId && athleteId != null
-      ? taskNameByAthleteId.get(athleteId) || null
-      : null;
+  if (directName) allNames.add(directName);
+
+  if (taskNameByAthleteId && athleteId != null) {
+    const rosterNames = taskNameByAthleteId.get(athleteId);
+    if (rosterNames) {
+      rosterNames.forEach(n => allNames.add(n));
+    }
+  }
+
+  // 3. Fall back to role ID only if no names found yet
+  if (allNames.size === 0) {
+    roleIds.forEach(id => {
+      allNames.add(`Role ${id}`);
+    });
+  }
+
   const taskName =
-    directName ||
-    rosterName ||
-    (roleIds.length > 0
-      ? roleIds.map(id => `Role ${id}`).join(', ')
-      : 'No role recorded');
+    allNames.size > 0 ? Array.from(allNames).join(', ') : 'Unknown Role';
 
   return {
     roster_id: parseNullableInt(raw.VolID),

@@ -517,7 +517,9 @@ async function fetchTaskNameByAthleteIdForDates(client, eventId, dates) {
         row?.volunteerRoleName,
       ]);
       if (Number.isFinite(id) && name) {
-        taskNameByKey.set(`${dateStr}:${id}`, name);
+        const key = `${dateStr}:${id}`;
+        if (!taskNameByKey.has(key)) taskNameByKey.set(key, new Set());
+        taskNameByKey.get(key).add(name);
       }
     }
   }
@@ -900,7 +902,9 @@ function firstNonEmptyString(values) {
 }
 
 function mapVolunteerRoleNames(roleIds, taskNameByKey, raw) {
-  // 1. Prefer a name returned directly on the raw volunteer row
+  const allNames = new Set();
+
+  // 1. Check for a name returned directly on the raw volunteer row
   const directName = firstNonEmptyString([
     raw?.TaskName,
     raw?.taskName,
@@ -910,7 +914,7 @@ function mapVolunteerRoleNames(roleIds, taskNameByKey, raw) {
     raw?.VolunteerRole,
     raw?.volunteerRole,
   ]);
-  if (directName) return directName;
+  if (directName) allNames.add(directName);
 
   // 2. Look up by date + athleteId from date-based roster
   const dateStr = raw?.EventDate
@@ -918,14 +922,21 @@ function mapVolunteerRoleNames(roleIds, taskNameByKey, raw) {
     : null;
   const athleteId = raw?.AthleteID != null ? parseInt(raw.AthleteID, 10) : null;
   if (dateStr && Number.isFinite(athleteId)) {
-    const rosterName = taskNameByKey.get(`${dateStr}:${athleteId}`);
-    if (rosterName) return rosterName;
+    const rosterNames = taskNameByKey.get(`${dateStr}:${athleteId}`);
+    if (rosterNames) {
+      rosterNames.forEach(n => allNames.add(n));
+    }
   }
 
-  // 3. Fall back to role ID
-  if (roleIds.length === 0) return 'No role recorded';
-  const names = roleIds.map(id => `Role ${id}`);
-  return names.join(', ');
+  // 3. Fall back to role ID only if no names found yet
+  if (allNames.size === 0) {
+    roleIds.forEach(id => {
+      allNames.add(`Role ${id}`);
+    });
+  }
+
+  if (allNames.size === 0) return 'Unknown Role';
+  return Array.from(allNames).join(', ');
 }
 
 function mapVolunteerRoleIdsCsv(roleIds) {

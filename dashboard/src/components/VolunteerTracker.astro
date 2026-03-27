@@ -1,0 +1,465 @@
+---
+import { runQuery } from '../lib/bigquery';
+
+/**
+ * Volunteer Query:
+ * Retrieves event dates, run IDs, and task names.
+ * Athlete IDs are used only for calculating unique counts on the server.
+ */
+const query = `
+  SELECT
+    event_date,
+    run_id,
+    task_name,
+    athlete_id,
+    EXTRACT(YEAR FROM event_date) as year
+  FROM \`${import.meta.env.GCP_PROJECT_ID}.parkrun_data.volunteers\`
+  ORDER BY event_date ASC
+`;
+
+let rows = [];
+try {
+  rows = await runQuery(query);
+} catch (e) {
+  console.error('BigQuery Error in VolunteerTracker:', e);
+}
+
+// Prepare data for the client (No Names/PII)
+const data = rows.map(r => ({
+  date: r.event_date.value || r.event_date,
+  run_id: r.run_id,
+  role: r.task_name || 'Unknown',
+  year: String(r.year),
+}));
+
+const allYears = [...new Set(data.map(d => d.year))]
+  .filter(Boolean)
+  .sort((a, b) => b.localeCompare(a));
+---
+
+<div class="volunteer-wrapper">
+  <div class="controls-bar">
+    <div class="mode-selector">
+      <label class="radio-label">
+        <input type="radio" name="vol-view-mode" value="timeline" checked />
+        <span>Timeline</span>
+      </label>
+      <label class="radio-label">
+        <input type="radio" name="vol-view-mode" value="compare" />
+        <span>Compare Years</span>
+      </label>
+    </div>
+
+    <div class="filter-row">
+      <div id="vol-year-dropdown-container" class="filter-group">
+        <label for="vol-year-filter">Year</label>
+        <select id="vol-year-filter">
+          <option value="All">All Years</option>
+          {allYears.map(year => <option value={year}>{year}</option>)}
+        </select>
+      </div>
+    </div>
+
+    <div id="vol-multi-year-container" class="hidden">
+      <div class="filter-group">
+        <label>Select 2 Years to Overlay</label>
+        <div class="checkbox-group">
+          {
+            allYears.map((year, i) => (
+              <label class="checkbox-item">
+                <input
+                  type="checkbox"
+                  value={year}
+                  checked={i < 2}
+                  class="vol-year-checkbox"
+                />
+                {year}
+              </label>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <h3 class="card-title">Weekly Volunteer Support</h3>
+    <div id="volunteer-timeline-chart"></div>
+  </div>
+
+  <div class="grid-2-col">
+    <div class="chart-card">
+      <h3 class="card-title">Role Popularity</h3>
+      <div id="role-distribution-chart"></div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header-box">
+        <h3 class="card-title">Role Breakdown</h3>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="sortable" data-col="role"
+              >Role <span class="sort-icon">↕</span></th
+            >
+            <th class="text-right sortable" data-col="count"
+              >Credits <span class="sort-icon">↕</span></th
+            >
+            <th class="text-right sortable" data-col="percent"
+              >% <span class="sort-icon">↕</span></th
+            >
+          </tr>
+        </thead>
+        <tbody id="vol-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script is:inline src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script define:vars={{ rawData: data }}>
+  let timelineChart;
+  let roleChart;
+  const wrapper = document.querySelector('.volunteer-wrapper');
+  const yearFilter = wrapper.querySelector('#vol-year-filter');
+  const multiYearContainer = wrapper.querySelector('#vol-multi-year-container');
+  const yearDropdownContainer = wrapper.querySelector(
+    '#vol-year-dropdown-container',
+  );
+  const modeRadios = wrapper.querySelectorAll('input[name="vol-view-mode"]');
+  const tableBody = wrapper.querySelector('#vol-table-body');
+
+  let currentSort = { col: 'count', dir: 'desc' };
+
+  wrapper.querySelectorAll('.data-table th.sortable').forEach(th => {
+    th.addEventListener('click', () => handleSort(th.dataset.col));
+  });
+
+  modeRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isCompare = radio.value === 'compare';
+      multiYearContainer.classList.toggle('hidden', !isCompare);
+      yearDropdownContainer.classList.toggle('hidden', isCompare);
+      updateView();
+    });
+  });
+
+  function handleSort(col) {
+    if (currentSort.col === col) {
+      currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort.col = col;
+      currentSort.dir = 'asc';
+    }
+    updateSortIcons();
+    updateView();
+  }
+
+  function updateView() {
+    const viewMode = wrapper.querySelector(
+      'input[name="vol-view-mode"]:checked',
+    ).value;
+    const selectedYear = yearFilter.value;
+    const selectedYears =
+      viewMode === 'compare'
+        ? Array.from(
+            wrapper.querySelectorAll('.vol-year-checkbox:checked'),
+          ).map(cb => cb.value)
+        : [];
+
+    let filteredRows = rawData;
+
+    // 1. Timeline Chart Logic
+    let series = [];
+    if (viewMode === 'timeline') {
+      const timelineRows =
+        selectedYear === 'All'
+          ? rawData
+          : rawData.filter(r => r.year === selectedYear);
+      const byDate = timelineRows.reduce((acc, curr) => {
+        acc[curr.date] = (acc[curr.date] || 0) + 1;
+        return acc;
+      }, {});
+
+      const sortedDates = Object.keys(byDate).sort();
+      series = [
+        {
+          name: 'Volunteers',
+          data: sortedDates.map(date => ({
+            x: new Date(date).getTime(),
+            y: byDate[date],
+          })),
+        },
+      ];
+    } else {
+      const colors = ['#a855f7', '#fb923c', '#2563eb'];
+      selectedYears.forEach((year, idx) => {
+        const yearRows = rawData.filter(r => r.year === year);
+        const byDay = yearRows.reduce((acc, curr) => {
+          const md = curr.date.substring(5);
+          acc[md] = (acc[md] || 0) + 1;
+          return acc;
+        }, {});
+        const seriesData = Object.keys(byDay)
+          .sort()
+          .map(md => {
+            const [m, d] = md.split('-');
+            return {
+              x: new Date(2024, parseInt(m) - 1, parseInt(d)).getTime(),
+              y: byDay[md],
+            };
+          });
+        series.push({
+          name: year,
+          data: seriesData,
+          color: colors[idx % colors.length],
+        });
+      });
+    }
+
+    const timelineOptions = {
+      series,
+      chart: {
+        type: 'line',
+        height: 300,
+        toolbar: { show: false },
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      },
+      stroke: { width: 3, curve: 'smooth' },
+      xaxis: { type: 'datetime' },
+      colors: ['#a855f7'],
+    };
+
+    if (!timelineChart) {
+      timelineChart = new ApexCharts(
+        wrapper.querySelector('#volunteer-timeline-chart'),
+        timelineOptions,
+      );
+      timelineChart.render();
+    } else {
+      timelineChart.updateOptions(timelineOptions);
+    }
+
+    // 2. Role Distribution Chart
+    const activeRows =
+      viewMode === 'timeline'
+        ? selectedYear === 'All'
+          ? rawData
+          : rawData.filter(r => r.year === selectedYear)
+        : rawData.filter(r => selectedYears.includes(r.year));
+
+    const roleCounts = activeRows.reduce((acc, curr) => {
+      acc[curr.role] = (acc[curr.role] || 0) + 1;
+      return acc;
+    }, {});
+
+    const sortedRoles = Object.entries(roleCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+    const roleOptions = {
+      series: [{ name: 'Credits', data: sortedRoles.map(r => r[1]) }],
+      chart: { type: 'bar', height: 300, toolbar: { show: false } },
+      plotOptions: { bar: { horizontal: true } },
+      colors: ['#a855f7'],
+      xaxis: { categories: sortedRoles.map(r => r[0]) },
+    };
+
+    if (!roleChart) {
+      roleChart = new ApexCharts(
+        wrapper.querySelector('#role-distribution-chart'),
+        roleOptions,
+      );
+      roleChart.render();
+    } else {
+      roleChart.updateOptions(roleOptions);
+    }
+
+    // 3. Table Logic
+    const total = activeRows.length;
+    let tableData = Object.entries(roleCounts).map(([role, count]) => ({
+      role,
+      count,
+      percent: total > 0 ? (count / total) * 100 : 0,
+    }));
+
+    tableData.sort((a, b) => {
+      let valA = a[currentSort.col];
+      let valB = b[currentSort.col];
+      if (typeof valA === 'string') {
+        return currentSort.dir === 'asc'
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      }
+      return currentSort.dir === 'asc' ? valA - valB : valB - valA;
+    });
+
+    tableBody.innerHTML = tableData
+      .map(
+        row => `
+      <tr>
+        <td class="font-medium">${row.role}</td>
+        <td class="text-right">${row.count.toLocaleString()}</td>
+        <td class="text-right text-muted">${row.percent.toFixed(1)}%</td>
+      </tr>
+    `,
+      )
+      .join('');
+  }
+
+  function updateSortIcons() {
+    wrapper.querySelectorAll('.data-table th.sortable').forEach(th => {
+      const icon = th.querySelector('.sort-icon');
+      icon.textContent =
+        th.dataset.col === currentSort.col
+          ? currentSort.dir === 'asc'
+            ? '↑'
+            : '↓'
+          : '↕';
+    });
+  }
+
+  yearFilter.addEventListener('change', updateView);
+  multiYearContainer.addEventListener('change', updateView);
+  updateView();
+</script>
+
+<style>
+  .volunteer-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .controls-bar {
+    background: white;
+    border-radius: 0.75rem;
+    border: 1px solid #f3f4f6;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .mode-selector,
+  .filter-row {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .filter-group label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+  .filter-group select {
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+    font-weight: 600;
+    background-color: #f9fafb;
+  }
+  .checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    background: #f9fafb;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+  }
+  .chart-card {
+    background: white;
+    border: 1px solid #f3f4f6;
+    padding: 1.5rem;
+    border-radius: 1.5rem;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+  .card-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+  .table-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 1.5rem;
+    overflow: hidden;
+  }
+  .table-header-box {
+    padding: 1.5rem 1.5rem 0 1.5rem;
+  }
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .data-table :global(th),
+  .data-table :global(td) {
+    padding: 1rem 1.25rem;
+    border: 1px solid #e5e7eb;
+  }
+  .data-table :global(th) {
+    text-align: left;
+    background: #f9fafb;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+  }
+  .data-table :global(tr:nth-child(even)) {
+    background-color: #fafafa;
+  }
+  .text-right {
+    text-align: right;
+  }
+  .text-muted {
+    color: var(--text-muted);
+  }
+  .font-medium {
+    font-weight: 500;
+  }
+  .hidden {
+    display: none;
+  }
+
+  .grid-2-col {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  @media (min-width: 1024px) {
+    .grid-2-col {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>

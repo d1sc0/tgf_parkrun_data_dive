@@ -162,10 +162,18 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     <table class="data-table">
       <thead>
         <tr>
-          <th>Age Category</th>
-          <th class="text-right">Fastest</th>
-          <th class="text-right">Average</th>
-          <th class="text-right">Slowest</th>
+          <th class="sortable" data-col="category"
+            >Age Category <span class="sort-icon">↕</span></th
+          >
+          <th class="text-right sortable" data-col="fastest"
+            >Fastest <span class="sort-icon">↕</span></th
+          >
+          <th class="text-right sortable" data-col="average"
+            >Average <span class="sort-icon">↕</span></th
+          >
+          <th class="text-right sortable" data-col="slowest"
+            >Slowest <span class="sort-icon">↕</span></th
+          >
         </tr>
       </thead>
       <tbody id="perf-table-body"></tbody>
@@ -189,6 +197,13 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     'perf-year-dropdown-container',
   );
 
+  // Sorting State
+  let currentSort = { col: 'category', dir: 'asc' };
+
+  document.querySelectorAll('.data-table th.sortable').forEach(th => {
+    th.addEventListener('click', () => handleSort(th.dataset.col));
+  });
+
   function formatSeconds(seconds) {
     if (seconds == null || isNaN(seconds)) return '-';
     const h = Math.floor(seconds / 3600);
@@ -210,6 +225,17 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
       updateView();
     });
   });
+
+  function handleSort(col) {
+    if (currentSort.col === col) {
+      currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort.col = col;
+      currentSort.dir = 'asc';
+    }
+    updateSortIcons();
+    updateView();
+  }
 
   function updateView() {
     const viewMode = document.querySelector(
@@ -418,19 +444,49 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
       return acc;
     }, {});
 
-    tableBody.innerHTML = Object.keys(byAge)
-      .sort()
+    let tableData = Object.keys(byAge).map(cat => ({
+      category: cat,
+      fastest: byAge[cat].fastest,
+      average: byAge[cat].sumSeconds / byAge[cat].finishers,
+      slowest: byAge[cat].slowest,
+    }));
+
+    // Sort the data
+    tableData.sort((a, b) => {
+      let valA = a[currentSort.col];
+      let valB = b[currentSort.col];
+
+      if (typeof valA === 'string') {
+        return currentSort.dir === 'asc'
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      }
+      return currentSort.dir === 'asc' ? valA - valB : valB - valA;
+    });
+
+    tableBody.innerHTML = tableData
       .map(
-        cat => `
-      <tr>
-        <td class="font-medium">${cat}</td>
-        <td class="text-right">${formatSeconds(byAge[cat].fastest)}</td>
-        <td class="text-right">${formatSeconds(byAge[cat].sumSeconds / byAge[cat].finishers)}</td>
-        <td class="text-right text-muted">${formatSeconds(byAge[cat].slowest)}</td>
-      </tr>
-    `,
+        row => `
+        <tr>
+          <td class="font-medium">${row.category}</td>
+          <td class="text-right">${formatSeconds(row.fastest)}</td>
+          <td class="text-right">${formatSeconds(row.average)}</td>
+          <td class="text-right text-muted">${formatSeconds(row.slowest)}</td>
+        </tr>
+      `,
       )
       .join('');
+  }
+
+  function updateSortIcons() {
+    document.querySelectorAll('.data-table th.sortable').forEach(th => {
+      const icon = th.querySelector('.sort-icon');
+      if (th.dataset.col === currentSort.col) {
+        icon.textContent = currentSort.dir === 'asc' ? '↑' : '↓';
+      } else {
+        icon.textContent = '↕';
+      }
+    });
   }
 
   [genderFilter, ageFilter, yearFilter].forEach(f =>

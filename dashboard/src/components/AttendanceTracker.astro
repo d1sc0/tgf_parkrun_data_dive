@@ -127,9 +127,15 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     <table class="data-table">
       <thead>
         <tr>
-          <th>Age Category</th>
-          <th class="text-right">Finishers</th>
-          <th class="text-right">% of Total</th>
+          <th class="sortable" data-col="category"
+            >Age Category <span class="sort-icon">↕</span></th
+          >
+          <th class="text-right sortable" data-col="count"
+            >Finishers <span class="sort-icon">↕</span></th
+          >
+          <th class="text-right sortable" data-col="percent"
+            >% of Total <span class="sort-icon">↕</span></th
+          >
         </tr>
       </thead>
       <tbody id="attendance-table-body">
@@ -157,6 +163,13 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     'year-dropdown-container',
   );
 
+  // Sorting State
+  let currentSort = { col: 'category', dir: 'asc' };
+
+  document.querySelectorAll('.data-table th.sortable').forEach(th => {
+    th.addEventListener('click', () => handleSort(th.dataset.col));
+  });
+
   // Handle Mode Toggle
   modeRadios.forEach(radio => {
     radio.addEventListener('change', () => {
@@ -169,6 +182,17 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
       updateView();
     });
   });
+
+  function handleSort(col) {
+    if (currentSort.col === col) {
+      currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort.col = col;
+      currentSort.dir = 'asc';
+    }
+    updateSortIcons();
+    updateView();
+  }
 
   function updateView() {
     const viewMode = document.querySelector(
@@ -357,18 +381,34 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     }, {});
 
     const totalFinishers = Object.values(byAge).reduce((a, b) => a + b, 0);
-    const sortedGroups = Object.keys(byAge).sort();
 
-    tableBody.innerHTML = sortedGroups
-      .map(category => {
-        const count = byAge[category];
-        const percent =
-          totalFinishers > 0 ? ((count / totalFinishers) * 100).toFixed(2) : 0;
+    // Convert to array for sorting
+    let tableData = Object.keys(byAge).map(category => {
+      const count = byAge[category];
+      const percent = totalFinishers > 0 ? (count / totalFinishers) * 100 : 0;
+      return { category, count, percent };
+    });
+
+    // Sort the data
+    tableData.sort((a, b) => {
+      let valA = a[currentSort.col];
+      let valB = b[currentSort.col];
+
+      if (typeof valA === 'string') {
+        return currentSort.dir === 'asc'
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      }
+      return currentSort.dir === 'asc' ? valA - valB : valB - valA;
+    });
+
+    tableBody.innerHTML = tableData
+      .map(row => {
         return `
       <tr>
-        <td class="font-medium">${category}</td>
-        <td class="text-right">${count.toLocaleString()}</td>
-        <td class="text-right text-muted">${percent}%</td>
+        <td class="font-medium">${row.category}</td>
+        <td class="text-right">${row.count.toLocaleString()}</td>
+        <td class="text-right text-muted">${row.percent.toFixed(2)}%</td>
       </tr>
       `;
       })
@@ -381,6 +421,17 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
         <td class="text-right">100%</td>
       </tr>
     `;
+  }
+
+  function updateSortIcons() {
+    document.querySelectorAll('.data-table th.sortable').forEach(th => {
+      const icon = th.querySelector('.sort-icon');
+      if (th.dataset.col === currentSort.col) {
+        icon.textContent = currentSort.dir === 'asc' ? '↑' : '↓';
+      } else {
+        icon.textContent = '↕';
+      }
+    });
   }
 
   genderFilter.addEventListener('change', updateView);
@@ -545,6 +596,12 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .data-table :global(th:hover) {
+    background: #f3f4f6;
   }
 
   .data-table :global(tr:nth-child(even)) {

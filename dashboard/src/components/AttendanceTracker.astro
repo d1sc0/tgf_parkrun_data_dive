@@ -310,7 +310,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
                   formatter: (val, { seriesIndex, dataPointIndex, w }) => {
                     if (val == null) return null;
                     const item =
-                      w.config.series[seriesIndex].data[dataPointIndex];
+                      w.config.series[seriesIndex]?.data[dataPointIndex];
                     return item?.run_id
                       ? `${val.toLocaleString()} (Event #${item.run_id})`
                       : val.toLocaleString();
@@ -322,7 +322,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
                 formatter: (val, { seriesIndex, dataPointIndex, w }) => {
                   if (val == null) return null;
                   const item =
-                    w.config.series[seriesIndex].data[dataPointIndex];
+                    w.config.series[seriesIndex]?.data[dataPointIndex];
                   return item?.run_id
                     ? `${val.toLocaleString()} (Event #${item.run_id})`
                     : val.toLocaleString();

@@ -204,6 +204,9 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
       const isCompare = radio.value === 'compare';
       multiYearContainer.classList.toggle('hidden', !isCompare);
       yearDropdownContainer.classList.toggle('hidden', isCompare);
+      document
+        .querySelector('.table-card')
+        ?.classList.toggle('hidden', isCompare);
       updateView();
     });
   });
@@ -365,7 +368,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
         y: series.map(() => ({
           formatter: (val, { seriesIndex, dataPointIndex, w }) => {
             if (val == null) return null;
-            const item = w.config.series[seriesIndex].data[dataPointIndex];
+            const item = w.config.series[seriesIndex]?.data[dataPointIndex];
             return item?.run_id
               ? `${formatSeconds(val)} (Event #${item.run_id})`
               : formatSeconds(val);

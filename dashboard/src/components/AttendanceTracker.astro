@@ -43,35 +43,77 @@ const data = rows.map(r => ({
   age_category: r.age_category,
   finishers: Number(r.finishers),
 }));
+
+// Extract unique years for the multi-select picker
+const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
+  .filter(Boolean)
+  .sort((a, b) => b.localeCompare(a));
 ---
 
 <div class="attendance-wrapper">
-  <!-- Filters -->
-  <div class="filter-bar">
-    <div class="filter-group">
-      <label for="year-filter">Year</label>
-      <select id="year-filter">
-        <option value="All">All Years</option>
-      </select>
+  <div class="controls-bar">
+    <!-- Mode Selector -->
+    <div class="mode-selector">
+      <label class="radio-label">
+        <input type="radio" name="view-mode" value="timeline" checked />
+        <span>Timeline</span>
+      </label>
+      <label class="radio-label">
+        <input type="radio" name="view-mode" value="compare" />
+        <span>Compare Years</span>
+      </label>
     </div>
-    <div class="filter-group">
-      <label for="gender-filter">Gender</label>
-      <select id="gender-filter">
-        <option value="All">All Genders</option>
-        <option value="Male">Male</option>
-        <option value="Female">Female</option>
-        <option value="Unknown">Unknown</option>
-      </select>
+
+    <div class="filter-row">
+      <div id="year-dropdown-container" class="filter-group">
+        <label for="year-filter">Year</label>
+        <select id="year-filter">
+          <option value="All">All Years</option>
+          {allYears.map(year => <option value={year}>{year}</option>)}
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="gender-filter">Gender</label>
+        <select id="gender-filter">
+          <option value="All">All Genders</option>
+          <option value="Male">Male</option>
+          <option value="Female">Female</option>
+          <option value="Unknown">Unknown</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="age-filter">Age Category</label>
+        <select id="age-filter">
+          <option value="All">All Categories</option>
+          <option value="Junior">Junior</option>
+          <option value="Senior">Senior</option>
+          <option value="Veteran">Veteran</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
     </div>
-    <div class="filter-group">
-      <label for="age-filter">Age Category</label>
-      <select id="age-filter">
-        <option value="All">All Categories</option>
-        <option value="Junior">Junior</option>
-        <option value="Senior">Senior</option>
-        <option value="Veteran">Veteran</option>
-        <option value="Other">Other</option>
-      </select>
+
+    <!-- Comparison Selection (visible when 'Compare' mode active) -->
+    <div id="multi-year-container" class="hidden">
+      <div class="filter-group">
+        <label>Select Years to Overlay</label>
+        <div class="checkbox-group">
+          {
+            allYears.map((year, i) => (
+              <label class="checkbox-item">
+                <input
+                  type="checkbox"
+                  value={year}
+                  checked={i < 2}
+                  class="year-checkbox"
+                />
+                {year}
+              </label>
+            ))
+          }
+        </div>
+      </div>
     </div>
   </div>
 
@@ -107,69 +149,149 @@ const data = rows.map(r => ({
   const genderFilter = document.getElementById('gender-filter');
   const ageFilter = document.getElementById('age-filter');
   const yearFilter = document.getElementById('year-filter');
+  const multiYearContainer = document.getElementById('multi-year-container');
   const tableBody = document.getElementById('attendance-table-body');
   const tableFooter = document.getElementById('attendance-table-footer');
+  const modeRadios = document.querySelectorAll('input[name="view-mode"]');
+  const yearDropdownContainer = document.getElementById(
+    'year-dropdown-container',
+  );
 
-  // Populate Year Filter dynamically from data
-  const years = [...new Set(rawData.map(d => d.date.substring(0, 4)))]
-    .filter(Boolean)
-    .sort((a, b) => b.localeCompare(a));
-  years.forEach(year => {
-    const opt = document.createElement('option');
-    opt.value = year;
-    opt.textContent = year;
-    yearFilter.appendChild(opt);
+  // Handle Mode Toggle
+  modeRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isCompare = radio.value === 'compare';
+      multiYearContainer.classList.toggle('hidden', !isCompare);
+      yearDropdownContainer.classList.toggle('hidden', isCompare);
+      document
+        .querySelector('.table-card')
+        ?.classList.toggle('hidden', isCompare);
+      updateView();
+    });
   });
 
   function updateView() {
+    const viewMode = document.querySelector(
+      'input[name="view-mode"]:checked',
+    ).value;
     const selectedGender = genderFilter.value;
     const selectedAge = ageFilter.value;
     const selectedYear = yearFilter.value;
+    const selectedYears =
+      viewMode === 'compare'
+        ? Array.from(document.querySelectorAll('.year-checkbox:checked')).map(
+            cb => cb.value,
+          )
+        : [];
 
-    // 1. Filter raw data
-    const filteredRows = rawData.filter(curr => {
+    // 1. Base Filter (Gender and Age Group)
+    let filteredRows = rawData.filter(curr => {
       const genderMatch =
         selectedGender === 'All' || curr.gender === selectedGender;
       const ageMatch = selectedAge === 'All' || curr.age_group === selectedAge;
-      const yearMatch =
-        selectedYear === 'All' || curr.date.startsWith(selectedYear);
-      return genderMatch && ageMatch && yearMatch;
+      return genderMatch && ageMatch;
     });
 
-    // 2. Aggregate data for the Chart (By Date)
-    const byDate = filteredRows.reduce((acc, curr) => {
-      if (!acc[curr.date])
-        acc[curr.date] = { finishers: 0, run_id: curr.run_id };
-      acc[curr.date].finishers += curr.finishers;
-      return acc;
-    }, {});
+    // 2. Handle Chart Logic
+    let series = [];
+    let chartOptions = {};
 
-    const sortedDates = Object.keys(byDate).sort();
-    const seriesData = sortedDates.map(date => ({
-      x: date,
-      y: byDate[date].finishers,
-      run_id: byDate[date].run_id,
-    }));
+    if (viewMode === 'timeline') {
+      // Filter by the single year dropdown if not 'All'
+      const timelineRows =
+        selectedYear === 'All'
+          ? filteredRows
+          : filteredRows.filter(r => r.date.startsWith(selectedYear));
 
-    // Calculate 16-week moving average for the trend line
-    const trendData = sortedDates.map((date, i) => {
-      const slice = sortedDates.slice(Math.max(0, i - 15), i + 1);
-      const avg =
-        slice.reduce((sum, d) => sum + byDate[d].finishers, 0) / slice.length;
-      return { x: date, y: Math.round(avg) };
-    });
+      const byDate = timelineRows.reduce((acc, curr) => {
+        if (!acc[curr.date])
+          acc[curr.date] = { finishers: 0, run_id: curr.run_id };
+        acc[curr.date].finishers += curr.finishers;
+        return acc;
+      }, {});
 
-    // Update Chart
-    const options = {
-      series: [
+      const sortedDates = Object.keys(byDate).sort();
+      const seriesData = sortedDates.map(date => ({
+        x: new Date(date).getTime(),
+        y: byDate[date].finishers,
+        run_id: byDate[date].run_id,
+      }));
+
+      const trendData = sortedDates.map((date, i) => {
+        const slice = sortedDates.slice(Math.max(0, i - 15), i + 1);
+        const avg =
+          slice.reduce((sum, d) => sum + byDate[d].finishers, 0) / slice.length;
+        return { x: new Date(date).getTime(), y: Math.round(avg) };
+      });
+
+      series = [
         { name: 'Finishers', type: 'line', data: seriesData },
         {
-          name: 'Trend (16wk)',
+          name: 'Trend',
           type: 'line',
           data: trendData,
-          tooltip: { enabled: false }, // Hide this series from the hover legend/tooltip
+          tooltip: { enabled: false },
         },
-      ],
+      ];
+
+      chartOptions = {
+        colors: ['#2563eb', '#ef4444'],
+        stroke: { width: [3, 3], curve: ['straight', 'smooth'] },
+        xaxis: {
+          type: 'datetime',
+          labels: { format: selectedYear === 'All' ? 'MMM yyyy' : 'dd MMM' },
+        },
+        tooltip: { x: { format: 'dd MMM yyyy' } },
+      };
+    } else {
+      // Comparison Logic (Overlay Years)
+      const colors = [
+        '#2563eb',
+        '#ef4444',
+        '#16a34a',
+        '#facc15',
+        '#a855f7',
+        '#fb923c',
+      ];
+
+      selectedYears.forEach((year, idx) => {
+        const yearRows = filteredRows.filter(r => r.date.startsWith(year));
+        const byDay = yearRows.reduce((acc, curr) => {
+          const md = curr.date.substring(5); // MM-DD
+          if (!acc[md]) acc[md] = { finishers: 0, run_id: curr.run_id };
+          acc[md].finishers += curr.finishers;
+          return acc;
+        }, {});
+
+        const seriesData = Object.keys(byDay)
+          .sort()
+          .map(md => {
+            const [m, d] = md.split('-');
+            return {
+              x: new Date(2024, parseInt(m) - 1, parseInt(d)).getTime(),
+              y: byDay[md].finishers,
+              run_id: byDay[md].run_id,
+            };
+          });
+
+        series.push({
+          name: year,
+          type: 'line',
+          data: seriesData,
+          color: colors[idx % colors.length],
+        });
+      });
+
+      chartOptions = {
+        stroke: { width: 3, curve: 'smooth' },
+        xaxis: { type: 'datetime', labels: { format: 'MMM' } },
+        tooltip: { x: { format: 'dd MMM' } },
+      };
+    }
+
+    const options = {
+      series,
+      ...chartOptions,
       chart: {
         height: 350,
         type: 'line',
@@ -177,28 +299,35 @@ const data = rows.map(r => ({
         zoom: { enabled: false },
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
       },
-      stroke: {
-        width: [3, 3],
-        curve: ['straight', 'smooth'],
-        dashArray: [0, 0], // Make both lines solid
-      },
-      colors: ['#2563eb', '#ef4444'], // Blue for raw data, Red for trend
-      xaxis: { type: 'datetime' },
       yaxis: { min: 0 },
       tooltip: {
-        x: { format: 'dd MMM yyyy' },
+        ...chartOptions.tooltip,
         shared: true,
-        y: [
-          {
-            formatter: (val, { seriesIndex, dataPointIndex, w }) => {
-              const item = w.config.series[seriesIndex].data[dataPointIndex];
-              return `${val?.toLocaleString()} (Event #${item.run_id})`;
-            },
-          },
-          {
-            formatter: () => null, // Explicitly suppress the trend value from the tooltip
-          },
-        ],
+        y:
+          viewMode === 'timeline'
+            ? [
+                {
+                  formatter: (val, { seriesIndex, dataPointIndex, w }) => {
+                    if (val == null) return null;
+                    const item =
+                      w.config.series[seriesIndex].data[dataPointIndex];
+                    return item?.run_id
+                      ? `${val.toLocaleString()} (Event #${item.run_id})`
+                      : val.toLocaleString();
+                  },
+                },
+                { formatter: () => null }, // Hide trend line value
+              ]
+            : series.map(() => ({
+                formatter: (val, { seriesIndex, dataPointIndex, w }) => {
+                  if (val == null) return null;
+                  const item =
+                    w.config.series[seriesIndex].data[dataPointIndex];
+                  return item?.run_id
+                    ? `${val.toLocaleString()} (Event #${item.run_id})`
+                    : val.toLocaleString();
+                },
+              })),
       },
     };
 
@@ -212,8 +341,17 @@ const data = rows.map(r => ({
       chart.updateOptions(options);
     }
 
-    // 3. Aggregate data for the Table (By Age Category)
-    const byAge = filteredRows.reduce((acc, curr) => {
+    // 3. Update Table logic
+    let tableRows = filteredRows;
+    if (viewMode === 'timeline' && selectedYear !== 'All') {
+      tableRows = filteredRows.filter(r => r.date.startsWith(selectedYear));
+    } else if (viewMode === 'compare') {
+      tableRows = filteredRows.filter(r =>
+        selectedYears.includes(r.date.substring(0, 4)),
+      );
+    }
+
+    const byAge = tableRows.reduce((acc, curr) => {
       acc[curr.age_category] = (acc[curr.age_category] || 0) + curr.finishers;
       return acc;
     }, {});
@@ -249,6 +387,10 @@ const data = rows.map(r => ({
   ageFilter.addEventListener('change', updateView);
   yearFilter.addEventListener('change', updateView);
 
+  multiYearContainer.addEventListener('change', e => {
+    if (e.target.classList.contains('year-checkbox')) updateView();
+  });
+
   // Initial render
   updateView();
 </script>
@@ -260,14 +402,40 @@ const data = rows.map(r => ({
     gap: 1.5rem;
   }
 
-  .filter-bar {
-    background: white;
-    padding: 1rem;
-    border-radius: 1rem;
-    border: 1px solid #f3f4f6;
+  .controls-bar {
     display: flex;
+    flex-direction: column;
     gap: 1rem;
+    background: white;
+    border-radius: 0.75rem;
+    border: 1px solid #f3f4f6;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+    align-items: flex-start;
+  }
+
+  .mode-selector {
+    display: flex;
+    gap: 1.25rem;
+    padding: 0.75rem 1.25rem;
+    width: fit-content;
+  }
+
+  .radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .filter-row {
+    display: flex;
+    gap: 1.25rem;
     flex-wrap: wrap;
+    padding: 0.75rem 1.25rem;
+    width: fit-content;
   }
 
   .filter-group {
@@ -290,6 +458,43 @@ const data = rows.map(r => ({
     border: 1px solid #e5e7eb;
     font-weight: 600;
     background-color: #f9fafb;
+  }
+
+  #multi-year-container {
+    background: white;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.75rem;
+    border: 1px solid #f3f4f6;
+    width: fit-content;
+  }
+
+  .filter-group select[multiple] {
+    height: auto;
+    min-height: 40px;
+    min-width: 120px;
+  }
+  .checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+
+  .checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    background: #f9fafb;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+  }
+
+  .hidden {
+    display: none;
   }
 
   .chart-card,

@@ -1,0 +1,365 @@
+---
+import { runQuery } from '../lib/bigquery';
+
+/**
+ * We fetch data grouped by date, gender, and age category.
+ * Parkrun age categories typically look like 'VM40-44' (Vet Male), 'SW25-29' (Senior Woman), etc.
+ */
+const query = `
+  SELECT
+    event_date,
+    CASE
+      WHEN age_category LIKE 'W%' OR age_category LIKE 'JW%' OR age_category LIKE 'SW%' OR age_category LIKE 'VW%' THEN 'Female'
+      WHEN age_category LIKE 'M%' OR age_category LIKE 'JM%' OR age_category LIKE 'SM%' OR age_category LIKE 'VM%' THEN 'Male'
+      ELSE 'Unknown'
+    END as gender,
+    CASE
+      WHEN age_category LIKE 'J%' THEN 'Junior'
+      WHEN age_category LIKE 'S%' THEN 'Senior'
+      WHEN age_category LIKE 'V%' THEN 'Veteran'
+      ELSE 'Other'
+    END as age_group,
+    age_category,
+    run_id,
+    count(*) as finishers
+  FROM \`${import.meta.env.GCP_PROJECT_ID}.parkrun_data.results\`
+  GROUP BY event_date, run_id, gender, age_group, age_category
+  ORDER BY event_date ASC
+`;
+
+let rows = [];
+try {
+  rows = await runQuery(query);
+} catch (e) {
+  console.error('BigQuery Error in AttendanceTracker:', e);
+}
+
+// Prepare data for the client
+const data = rows.map(r => ({
+  date: r.event_date.value || r.event_date,
+  run_id: r.run_id,
+  gender: r.gender,
+  age_group: r.age_group,
+  age_category: r.age_category,
+  finishers: Number(r.finishers),
+}));
+---
+
+<div class="attendance-wrapper">
+  <!-- Filters -->
+  <div class="filter-bar">
+    <div class="filter-group">
+      <label for="year-filter">Year</label>
+      <select id="year-filter">
+        <option value="All">All Years</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="gender-filter">Gender</label>
+      <select id="gender-filter">
+        <option value="All">All Genders</option>
+        <option value="Male">Male</option>
+        <option value="Female">Female</option>
+        <option value="Unknown">Unknown</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="age-filter">Age Category</label>
+      <select id="age-filter">
+        <option value="All">All Categories</option>
+        <option value="Junior">Junior</option>
+        <option value="Senior">Senior</option>
+        <option value="Veteran">Veteran</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Chart Container -->
+  <div class="chart-card">
+    <div id="attendance-chart"></div>
+  </div>
+
+  <!-- Data Table -->
+  <div class="table-card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Age Category</th>
+          <th class="text-right">Finishers</th>
+          <th class="text-right">% of Total</th>
+        </tr>
+      </thead>
+      <tbody id="attendance-table-body">
+        <!-- Populated via Script -->
+      </tbody>
+      <tfoot id="attendance-table-footer">
+        <!-- Totals via Script -->
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<script is:inline src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script define:vars={{ rawData: data }}>
+  let chart;
+  const genderFilter = document.getElementById('gender-filter');
+  const ageFilter = document.getElementById('age-filter');
+  const yearFilter = document.getElementById('year-filter');
+  const tableBody = document.getElementById('attendance-table-body');
+  const tableFooter = document.getElementById('attendance-table-footer');
+
+  // Populate Year Filter dynamically from data
+  const years = [...new Set(rawData.map(d => d.date.substring(0, 4)))]
+    .filter(Boolean)
+    .sort((a, b) => b.localeCompare(a));
+  years.forEach(year => {
+    const opt = document.createElement('option');
+    opt.value = year;
+    opt.textContent = year;
+    yearFilter.appendChild(opt);
+  });
+
+  function updateView() {
+    const selectedGender = genderFilter.value;
+    const selectedAge = ageFilter.value;
+    const selectedYear = yearFilter.value;
+
+    // 1. Filter raw data
+    const filteredRows = rawData.filter(curr => {
+      const genderMatch =
+        selectedGender === 'All' || curr.gender === selectedGender;
+      const ageMatch = selectedAge === 'All' || curr.age_group === selectedAge;
+      const yearMatch =
+        selectedYear === 'All' || curr.date.startsWith(selectedYear);
+      return genderMatch && ageMatch && yearMatch;
+    });
+
+    // 2. Aggregate data for the Chart (By Date)
+    const byDate = filteredRows.reduce((acc, curr) => {
+      if (!acc[curr.date])
+        acc[curr.date] = { finishers: 0, run_id: curr.run_id };
+      acc[curr.date].finishers += curr.finishers;
+      return acc;
+    }, {});
+
+    const sortedDates = Object.keys(byDate).sort();
+    const seriesData = sortedDates.map(date => ({
+      x: date,
+      y: byDate[date].finishers,
+      run_id: byDate[date].run_id,
+    }));
+
+    // Calculate 16-week moving average for the trend line
+    const trendData = sortedDates.map((date, i) => {
+      const slice = sortedDates.slice(Math.max(0, i - 15), i + 1);
+      const avg =
+        slice.reduce((sum, d) => sum + byDate[d].finishers, 0) / slice.length;
+      return { x: date, y: Math.round(avg) };
+    });
+
+    // Update Chart
+    const options = {
+      series: [
+        { name: 'Finishers', type: 'line', data: seriesData },
+        {
+          name: 'Trend (16wk)',
+          type: 'line',
+          data: trendData,
+          tooltip: { enabled: false }, // Hide this series from the hover legend/tooltip
+        },
+      ],
+      chart: {
+        height: 350,
+        type: 'line',
+        toolbar: { show: false },
+        zoom: { enabled: false },
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      },
+      stroke: {
+        width: [3, 3],
+        curve: ['straight', 'smooth'],
+        dashArray: [0, 0], // Make both lines solid
+      },
+      colors: ['#2563eb', '#ef4444'], // Blue for raw data, Red for trend
+      xaxis: { type: 'datetime' },
+      yaxis: { min: 0 },
+      tooltip: {
+        x: { format: 'dd MMM yyyy' },
+        shared: true,
+        y: [
+          {
+            formatter: (val, { seriesIndex, dataPointIndex, w }) => {
+              const item = w.config.series[seriesIndex].data[dataPointIndex];
+              return `${val?.toLocaleString()} (Event #${item.run_id})`;
+            },
+          },
+          {
+            formatter: () => null, // Explicitly suppress the trend value from the tooltip
+          },
+        ],
+      },
+    };
+
+    if (!chart) {
+      chart = new ApexCharts(
+        document.querySelector('#attendance-chart'),
+        options,
+      );
+      chart.render();
+    } else {
+      chart.updateOptions(options);
+    }
+
+    // 3. Aggregate data for the Table (By Age Category)
+    const byAge = filteredRows.reduce((acc, curr) => {
+      acc[curr.age_category] = (acc[curr.age_category] || 0) + curr.finishers;
+      return acc;
+    }, {});
+
+    const totalFinishers = Object.values(byAge).reduce((a, b) => a + b, 0);
+    const sortedGroups = Object.keys(byAge).sort();
+
+    tableBody.innerHTML = sortedGroups
+      .map(category => {
+        const count = byAge[category];
+        const percent =
+          totalFinishers > 0 ? ((count / totalFinishers) * 100).toFixed(2) : 0;
+        return `
+      <tr>
+        <td class="font-medium">${category}</td>
+        <td class="text-right">${count.toLocaleString()}</td>
+        <td class="text-right text-muted">${percent}%</td>
+      </tr>
+      `;
+      })
+      .join('');
+
+    tableFooter.innerHTML = `
+      <tr class="footer-row">
+        <td>Total</td>
+        <td class="text-right">${totalFinishers.toLocaleString()}</td>
+        <td class="text-right">100%</td>
+      </tr>
+    `;
+  }
+
+  genderFilter.addEventListener('change', updateView);
+  ageFilter.addEventListener('change', updateView);
+  yearFilter.addEventListener('change', updateView);
+
+  // Initial render
+  updateView();
+</script>
+
+<style>
+  .attendance-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .filter-bar {
+    background: white;
+    padding: 1rem;
+    border-radius: 1rem;
+    border: 1px solid #f3f4f6;
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .filter-group label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+
+  .filter-group select {
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+    font-weight: 600;
+    background-color: #f9fafb;
+  }
+
+  .chart-card,
+  .table-card {
+    background: white;
+    border: 1px solid #f3f4f6;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  .chart-card {
+    padding: 1.5rem;
+    border-radius: 1.5rem;
+  }
+
+  .table-card {
+    padding: 0;
+    border-radius: 0; /* Removed rounded corners */
+    border: 1px solid #e5e7eb;
+    overflow-x: auto;
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  /* Use :global to target elements injected via innerHTML */
+  .data-table :global(th),
+  .data-table :global(td) {
+    padding: 1rem 1.25rem;
+    border: 1px solid #e5e7eb;
+  }
+
+  .data-table :global(th) {
+    text-align: left;
+    background: #f9fafb;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .data-table :global(tr:nth-child(even)) {
+    background-color: #fafafa;
+  }
+
+  .data-table :global(tr:hover) {
+    background-color: #f3f4f6;
+  }
+
+  .data-table :global(.footer-row td) {
+    background-color: #f9fafb !important;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-top: 2px solid #d1d5db;
+  }
+
+  .data-table :global(.text-right) {
+    text-align: right;
+  }
+  .data-table :global(.font-bold) {
+    font-weight: 700;
+  }
+  .data-table :global(.font-medium) {
+    font-weight: 500;
+  }
+  .data-table :global(.text-muted) {
+    color: var(--text-muted);
+  }
+</style>

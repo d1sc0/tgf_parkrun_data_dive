@@ -239,7 +239,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
   }
 
   function updateView() {
-    const viewMode = document.querySelector(
+    const viewMode = wrapper.querySelector(
       'input[name="perf-view-mode"]:checked',
     ).value;
     const selectedGender = genderFilter.value;
@@ -248,7 +248,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     const selectedYears =
       viewMode === 'compare'
         ? Array.from(
-            document.querySelectorAll('.perf-year-checkbox:checked'),
+            wrapper.querySelectorAll('.perf-year-checkbox:checked'),
           ).map(cb => cb.value)
         : [];
 
@@ -529,7 +529,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     display: flex;
     gap: 1.25rem;
     flex-wrap: wrap;
-    width: fit-content;
+    width: 100%;
   }
   .radio-label {
     display: flex;

@@ -303,12 +303,12 @@ const formatNum = (val: any) => {
 <style>
   .stats-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
   }
   @media (min-width: 1024px) {
     .stats-grid {
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
     .visual-card {
       grid-row: span 1;
@@ -361,13 +361,18 @@ const formatNum = (val: any) => {
     margin: 0 0 0.25rem 0;
   }
   .stat-value {
-    font-size: 1.875rem;
+    font-size: 1.5rem;
     font-weight: 900;
     color: #111827;
     margin: 0;
   }
   .text-orange {
     color: #f97316;
+  }
+  @media (min-width: 1024px) {
+    .stat-value {
+      font-size: 1.875rem;
+    }
   }
   .text-purple {
     color: #9333ea;

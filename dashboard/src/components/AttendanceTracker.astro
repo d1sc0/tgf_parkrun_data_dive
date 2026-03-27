@@ -177,7 +177,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
       const isCompare = radio.value === 'compare';
       multiYearContainer.classList.toggle('hidden', !isCompare);
       yearDropdownContainer.classList.toggle('hidden', isCompare);
-      document
+      wrapper
         .querySelector('.table-card')
         ?.classList.toggle('hidden', isCompare);
       updateView();
@@ -196,7 +196,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
   }
 
   function updateView() {
-    const viewMode = document.querySelector(
+    const viewMode = wrapper.querySelector(
       'input[name="view-mode"]:checked',
     ).value;
     const selectedGender = genderFilter.value;
@@ -204,7 +204,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     const selectedYear = yearFilter.value;
     const selectedYears =
       viewMode === 'compare'
-        ? Array.from(document.querySelectorAll('.year-checkbox:checked')).map(
+        ? Array.from(wrapper.querySelectorAll('.year-checkbox:checked')).map(
             cb => cb.value,
           )
         : [];
@@ -479,7 +479,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     display: flex;
     gap: 1.25rem;
     padding: 0.75rem 1.25rem;
-    width: fit-content;
+    width: 100%;
   }
 
   .radio-label {
@@ -496,7 +496,7 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     gap: 1.25rem;
     flex-wrap: wrap;
     padding: 0.75rem 1.25rem;
-    width: fit-content;
+    width: 100%;
   }
 
   .filter-group {

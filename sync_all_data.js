@@ -650,7 +650,7 @@ function mapVolunteerRow(raw, taskNameByAthleteId) {
     event_number: parseNullableInt(raw.EventNumber),
     run_id: parseNullableInt(raw.RunId),
     event_date: toDateString(raw.EventDate),
-    athlete_id: parseNullableInt(raw.AthleteID),
+    athlete_id: parseNullableInt(raw.AthleteID) ?? 2214,
     task_id: roleIds.length > 0 ? roleIds[0] : null,
     task_ids: mapVolunteerRoleIdsCsv(roleIds),
     task_name: taskName,

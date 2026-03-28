@@ -62,7 +62,7 @@ const query = `
       ) as avg_finish_seconds,
       COUNT(*) / NULLIF(COUNT(DISTINCT event_date), 0) as avg_parkrun_finishers_per_week,
       COUNT(DISTINCT athlete_id) as unique_athletes,
-      (SELECT COUNT(DISTINCT athlete_id) FROM \`${import.meta.env.GCP_PROJECT_ID}.parkrun_data.volunteers\`) as unique_volunteers,
+      (SELECT COUNT(DISTINCT IFNULL(athlete_id, 2214)) FROM \`${import.meta.env.GCP_PROJECT_ID}.parkrun_data.volunteers\`) as unique_volunteers,
       MIN(finish_time) as parkrun_fastest_time,
       MAX(finish_time) as parkrun_slowest_time,
       COUNTIF(was_genuine_pb = true) as parkrun_genuine_pb_count,

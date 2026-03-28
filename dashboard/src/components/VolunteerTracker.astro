@@ -168,6 +168,12 @@ const allYears = [...new Set(data.map(d => d.year))]
       const isCompare = radio.value === 'compare';
       multiYearContainer.classList.toggle('hidden', !isCompare);
       yearDropdownContainer.classList.toggle('hidden', isCompare);
+      wrapper
+        .querySelector('.volunteer-stats-grid')
+        ?.classList.toggle('hidden', isCompare);
+      wrapper
+        .querySelector('.table-card')
+        ?.classList.toggle('hidden', isCompare);
       updateView();
     });
   });
@@ -518,7 +524,7 @@ const allYears = [...new Set(data.map(d => d.year))]
     font-weight: 700;
   }
   .hidden {
-    display: none;
+    display: none !important;
   }
 
   .volunteer-stats-grid {

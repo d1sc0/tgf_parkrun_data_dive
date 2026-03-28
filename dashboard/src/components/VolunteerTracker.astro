@@ -5,16 +5,25 @@ import { runQuery } from '../lib/bigquery';
  * Volunteer Query:
  * Retrieves event dates, run IDs, and task names.
  * Athlete IDs are used only for calculating unique counts on the server.
+ * Aggregates volunteer records and joins with finisher counts per run
+ * to calculate the volunteer-to-runner ratio.
  */
 const query = `
+  WITH event_finishers AS (
+    SELECT run_id, COUNT(*) as total_finishers
+    FROM \`${import.meta.env.GCP_PROJECT_ID}.parkrun_data.results\`
+    GROUP BY run_id
+  )
   SELECT
-    event_date,
-    run_id,
-    task_name,
-    athlete_id,
-    EXTRACT(YEAR FROM event_date) as year
-  FROM \`${import.meta.env.GCP_PROJECT_ID}.parkrun_data.volunteers\`
-  ORDER BY event_date ASC
+    v.event_date,
+    v.run_id,
+    v.task_name,
+    v.athlete_id,
+    EXTRACT(YEAR FROM v.event_date) as year,
+    f.total_finishers
+  FROM \`${import.meta.env.GCP_PROJECT_ID}.parkrun_data.volunteers\` v
+  LEFT JOIN event_finishers f ON v.run_id = f.run_id
+  ORDER BY v.event_date ASC
 `;
 
 let rows = [];
@@ -30,6 +39,8 @@ const data = rows.map(r => ({
   run_id: r.run_id,
   role: r.task_name || 'Unknown',
   year: String(r.year),
+  finishers: Number(r.total_finishers || 0),
+  athlete_id: r.athlete_id,
 }));
 
 const allYears = [...new Set(data.map(d => d.year))]
@@ -87,9 +98,29 @@ const allYears = [...new Set(data.map(d => d.year))]
     <div id="volunteer-timeline-chart"></div>
   </div>
 
+  <!-- Summary Stat Cards -->
+  <div class="volunteer-stats-grid">
+    <div class="v-stat-card">
+      <p class="v-stat-label">Total Credits Awarded</p>
+      <p class="v-stat-value" id="stat-total-credits">0</p>
+    </div>
+    <div class="v-stat-card">
+      <p class="v-stat-label">Avg Helpers / Week</p>
+      <p class="v-stat-value" id="stat-avg-helpers">0</p>
+    </div>
+    <div class="v-stat-card">
+      <p class="v-stat-label">Avg Vol : Runner Ratio</p>
+      <p class="v-stat-value" id="stat-vol-ratio">0</p>
+    </div>
+    <div class="v-stat-card">
+      <p class="v-stat-label">Unique Volunteers</p>
+      <p class="v-stat-value" id="stat-unique-vols">0</p>
+    </div>
+  </div>
+
   <div class="table-card">
     <div class="table-header-box">
-      <h3 class="card-title">Volunteers Credits Awarded</h3>
+      <h3 class="card-title">Breakdown of Credits Awarded</h3>
     </div>
     <table class="data-table">
       <thead>
@@ -121,6 +152,10 @@ const allYears = [...new Set(data.map(d => d.year))]
   const modeRadios = wrapper.querySelectorAll('input[name="vol-view-mode"]');
   const tableBody = wrapper.querySelector('#vol-table-body');
   const tableFooter = wrapper.querySelector('#vol-table-footer');
+  const statTotalCredits = wrapper.querySelector('#stat-total-credits');
+  const statAvgHelpers = wrapper.querySelector('#stat-avg-helpers');
+  const statVolRatio = wrapper.querySelector('#stat-vol-ratio');
+  const statUniqueVols = wrapper.querySelector('#stat-unique-vols');
 
   let currentSort = { col: 'count', dir: 'desc' };
 
@@ -261,6 +296,40 @@ const allYears = [...new Set(data.map(d => d.year))]
     }, {});
 
     const totalCredits = Object.values(roleCounts).reduce((a, b) => a + b, 0);
+    const uniqueDates = new Set(activeRows.map(r => r.date)).size;
+    const avgHelpers =
+      uniqueDates > 0 ? (activeRows.length / uniqueDates).toFixed(1) : 0;
+    const totalUniqueVols = new Set(activeRows.map(r => r.athlete_id)).size;
+
+    // Calculate Vol : Runner Ratio (based on headcount per event, not credits)
+    const eventSummary = {}; // { run_id: { finishers: N, uniqueVols: Set } }
+    activeRows.forEach(r => {
+      if (!r.run_id) return;
+      if (!eventSummary[r.run_id]) {
+        eventSummary[r.run_id] = {
+          finishers: r.finishers,
+          uniqueVols: new Set(),
+        };
+      }
+      eventSummary[r.run_id].uniqueVols.add(r.athlete_id);
+    });
+
+    const totalFinishers = Object.values(eventSummary).reduce(
+      (a, b) => a + b.finishers,
+      0,
+    );
+    const totalHeadcount = Object.values(eventSummary).reduce(
+      (a, b) => a + b.uniqueVols.size,
+      0,
+    );
+    const runnersPerVol =
+      totalHeadcount > 0 ? (totalFinishers / totalHeadcount).toFixed(1) : 0;
+
+    // Update Stat Cards
+    statTotalCredits.textContent = totalCredits.toLocaleString();
+    statAvgHelpers.textContent = avgHelpers;
+    statVolRatio.textContent = `1:${runnersPerVol}`;
+    statUniqueVols.textContent = totalUniqueVols.toLocaleString();
 
     // 3. Table Preparation
     let tableData = Object.entries(roleCounts).map(([role, count]) => ({
@@ -450,5 +519,48 @@ const allYears = [...new Set(data.map(d => d.year))]
   }
   .hidden {
     display: none;
+  }
+
+  .volunteer-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .v-stat-card {
+    background: white;
+    padding: 1.25rem;
+    border-radius: 1rem;
+    border: 1px solid #f3f4f6;
+    text-align: center;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  .v-stat-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+  }
+
+  .v-stat-value {
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: #a855f7; /* Matching the volunteer purple theme */
+    margin: 0;
+  }
+
+  @media (min-width: 1024px) {
+    .volunteer-stats-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .volunteer-stats-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

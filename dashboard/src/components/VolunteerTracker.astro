@@ -103,6 +103,7 @@ const allYears = [...new Set(data.map(d => d.year))]
         </tr>
       </thead>
       <tbody id="vol-table-body"></tbody>
+      <tfoot id="vol-table-footer"></tfoot>
     </table>
   </div>
 </div>
@@ -119,6 +120,7 @@ const allYears = [...new Set(data.map(d => d.year))]
   );
   const modeRadios = wrapper.querySelectorAll('input[name="vol-view-mode"]');
   const tableBody = wrapper.querySelector('#vol-table-body');
+  const tableFooter = wrapper.querySelector('#vol-table-footer');
 
   let currentSort = { col: 'count', dir: 'desc' };
 
@@ -258,6 +260,8 @@ const allYears = [...new Set(data.map(d => d.year))]
       return acc;
     }, {});
 
+    const totalCredits = Object.values(roleCounts).reduce((a, b) => a + b, 0);
+
     // 3. Table Preparation
     let tableData = Object.entries(roleCounts).map(([role, count]) => ({
       role,
@@ -285,6 +289,13 @@ const allYears = [...new Set(data.map(d => d.year))]
     `,
       )
       .join('');
+
+    tableFooter.innerHTML = `
+      <tr class="footer-row">
+        <td class="font-bold">Total</td>
+        <td class="text-right font-bold">${totalCredits.toLocaleString()}</td>
+      </tr>
+    `;
   }
 
   function updateSortIcons() {
@@ -417,6 +428,14 @@ const allYears = [...new Set(data.map(d => d.year))]
   .data-table :global(tr:nth-child(even)) {
     background-color: #fafafa;
   }
+  .data-table :global(.footer-row td) {
+    background-color: #f9fafb !important;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-top: 2px solid #d1d5db;
+  }
   .text-right {
     text-align: right;
   }
@@ -425,6 +444,9 @@ const allYears = [...new Set(data.map(d => d.year))]
   }
   .font-medium {
     font-weight: 500;
+  }
+  .font-bold {
+    font-weight: 700;
   }
   .hidden {
     display: none;

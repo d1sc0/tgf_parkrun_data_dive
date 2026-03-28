@@ -87,33 +87,23 @@ const allYears = [...new Set(data.map(d => d.year))]
     <div id="volunteer-timeline-chart"></div>
   </div>
 
-  <div class="grid-2-col">
-    <div class="chart-card">
-      <h3 class="card-title">Role Popularity</h3>
-      <div id="role-distribution-chart"></div>
+  <div class="table-card">
+    <div class="table-header-box">
+      <h3 class="card-title">Volunteers Credits Awarded</h3>
     </div>
-
-    <div class="table-card">
-      <div class="table-header-box">
-        <h3 class="card-title">Role Breakdown</h3>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th class="sortable" data-col="role"
-              >Role <span class="sort-icon">↕</span></th
-            >
-            <th class="text-right sortable" data-col="count"
-              >Credits <span class="sort-icon">↕</span></th
-            >
-            <th class="text-right sortable" data-col="percent"
-              >% <span class="sort-icon">↕</span></th
-            >
-          </tr>
-        </thead>
-        <tbody id="vol-table-body"></tbody>
-      </table>
-    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-col="role"
+            >Role <span class="sort-icon">↕</span></th
+          >
+          <th class="text-right sortable" data-col="count"
+            >Credits <span class="sort-icon">↕</span></th
+          >
+        </tr>
+      </thead>
+      <tbody id="vol-table-body"></tbody>
+    </table>
   </div>
 </div>
 
@@ -121,7 +111,6 @@ const allYears = [...new Set(data.map(d => d.year))]
 
 <script define:vars={{ rawData: data }}>
   let timelineChart;
-  let roleChart;
   const wrapper = document.querySelector('.volunteer-wrapper');
   const yearFilter = wrapper.querySelector('#vol-year-filter');
   const multiYearContainer = wrapper.querySelector('#vol-multi-year-container');
@@ -242,7 +231,7 @@ const allYears = [...new Set(data.map(d => d.year))]
       timelineChart.updateOptions(timelineOptions);
     }
 
-    // 2. Role Distribution Chart
+    // 2. Role Aggregation Logic
     const activeRows =
       viewMode === 'timeline'
         ? selectedYear === 'All'
@@ -269,33 +258,10 @@ const allYears = [...new Set(data.map(d => d.year))]
       return acc;
     }, {});
 
-    const sortedRoles = Object.entries(roleCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10);
-    const roleOptions = {
-      series: [{ name: 'Credits', data: sortedRoles.map(r => r[1]) }],
-      chart: { type: 'bar', height: 300, toolbar: { show: false } },
-      plotOptions: { bar: { horizontal: true } },
-      colors: ['#a855f7'],
-      xaxis: { categories: sortedRoles.map(r => r[0]) },
-    };
-
-    if (!roleChart) {
-      roleChart = new ApexCharts(
-        wrapper.querySelector('#role-distribution-chart'),
-        roleOptions,
-      );
-      roleChart.render();
-    } else {
-      roleChart.updateOptions(roleOptions);
-    }
-
-    // 3. Table Logic
-    const total = Object.values(roleCounts).reduce((a, b) => a + b, 0);
+    // 3. Table Preparation
     let tableData = Object.entries(roleCounts).map(([role, count]) => ({
       role,
       count,
-      percent: total > 0 ? (count / total) * 100 : 0,
     }));
 
     tableData.sort((a, b) => {
@@ -315,7 +281,6 @@ const allYears = [...new Set(data.map(d => d.year))]
       <tr>
         <td class="font-medium">${row.role}</td>
         <td class="text-right">${row.count.toLocaleString()}</td>
-        <td class="text-right text-muted">${row.percent.toFixed(1)}%</td>
       </tr>
     `,
       )
@@ -463,17 +428,5 @@ const allYears = [...new Set(data.map(d => d.year))]
   }
   .hidden {
     display: none;
-  }
-
-  .grid-2-col {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
-  }
-
-  @media (min-width: 1024px) {
-    .grid-2-col {
-      grid-template-columns: 1fr 1fr;
-    }
   }
 </style>

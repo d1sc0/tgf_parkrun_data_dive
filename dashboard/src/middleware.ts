@@ -3,6 +3,13 @@ import { getAuth } from 'firebase-admin/auth';
 import './lib/firebase-admin'; // Ensure admin is initialized
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  // Debug log to confirm request entry and check headers for CSRF issues
+  console.log(
+    `[Middleware] Method: ${context.request.method} Path: ${context.url.pathname}`,
+  );
+  console.log(`[Middleware] Origin: ${context.request.headers.get('origin')}`);
+  console.log(`[Middleware] Host: ${context.request.headers.get('host')}`);
+
   const sessionCookie = context.cookies.get('__session')?.value;
 
   if (sessionCookie) {
@@ -18,7 +25,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
       );
       context.locals.user = decodedClaims;
     } catch (error) {
-      console.error('Firebase Auth Middleware Error:', error);
+      // More descriptive error logging
+      if (error instanceof Error) {
+        console.error(`[Middleware] Firebase Auth Error: ${error.message}`);
+      } else {
+        console.error('[Middleware] Firebase Auth Error:', error);
+      }
       // If invalid, expired, or permission error, clear the cookie
       context.cookies.delete('__session', { path: '/' });
     }

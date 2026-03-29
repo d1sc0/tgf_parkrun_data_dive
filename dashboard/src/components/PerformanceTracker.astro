@@ -165,13 +165,13 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
           <th class="sortable" data-col="category"
             >Age Category <span class="sort-icon">↕</span></th
           >
-          <th class="text-right sortable" data-col="fastest"
+          <th class="sortable" data-col="fastest"
             >Fastest <span class="sort-icon">↕</span></th
           >
-          <th class="text-right sortable" data-col="average"
+          <th class="sortable" data-col="average"
             >Average <span class="sort-icon">↕</span></th
           >
-          <th class="text-right sortable" data-col="slowest"
+          <th class="sortable" data-col="slowest"
             >Slowest <span class="sort-icon">↕</span></th
           >
         </tr>
@@ -470,9 +470,9 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
         row => `
         <tr>
           <td class="font-medium">${row.category}</td>
-          <td class="text-right">${formatSeconds(row.fastest)}</td>
-          <td class="text-right">${formatSeconds(row.average)}</td>
-          <td class="text-right text-muted">${formatSeconds(row.slowest)}</td>
+          <td>${formatSeconds(row.fastest)}</td>
+          <td>${formatSeconds(row.average)}</td>
+          <td class="text-muted">${formatSeconds(row.slowest)}</td>
         </tr>
       `,
       )
@@ -609,9 +609,6 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
   }
   .data-table :global(tr:nth-child(even)) {
     background-color: #fafafa;
-  }
-  .data-table :global(.text-right) {
-    text-align: right;
   }
   .data-table :global(.font-medium) {
     font-weight: 500;

@@ -130,10 +130,10 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
           <th class="sortable" data-col="category"
             >Age Category <span class="sort-icon">↕</span></th
           >
-          <th class="text-right sortable" data-col="count"
+          <th class="sortable" data-col="count"
             >Finishers <span class="sort-icon">↕</span></th
           >
-          <th class="text-right sortable" data-col="percent"
+          <th class="sortable" data-col="percent"
             >% of Total <span class="sort-icon">↕</span></th
           >
         </tr>
@@ -408,8 +408,8 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
         return `
       <tr>
         <td class="font-medium">${row.category}</td>
-        <td class="text-right">${row.count.toLocaleString()}</td>
-        <td class="text-right text-muted">${row.percent.toFixed(2)}%</td>
+        <td>${row.count.toLocaleString()}</td>
+        <td class="text-muted">${row.percent.toFixed(2)}%</td>
       </tr>
       `;
       })
@@ -418,8 +418,8 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     tableFooter.innerHTML = `
       <tr class="footer-row">
         <td>Total</td>
-        <td class="text-right">${totalFinishers.toLocaleString()}</td>
-        <td class="text-right">100%</td>
+        <td>${totalFinishers.toLocaleString()}</td>
+        <td>100%</td>
       </tr>
     `;
   }
@@ -622,9 +622,6 @@ const allYears = [...new Set(data.map(d => d.date.substring(0, 4)))]
     border-top: 2px solid #d1d5db;
   }
 
-  .data-table :global(.text-right) {
-    text-align: right;
-  }
   .data-table :global(.font-bold) {
     font-weight: 700;
   }

@@ -43,8 +43,8 @@ const queries = {
           CASE
             WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 3 THEN
               CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(2)] AS INT64)
             WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 2 THEN
               CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
               CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64)
@@ -100,11 +100,11 @@ const queries = {
           CASE
             WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 3 THEN
               CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(2)] AS INT64)
             WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 2 THEN
               CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64)
             ELSE 999999
           END ASC, r.event_date ASC
         ) as rn
@@ -158,11 +158,11 @@ const queries = {
           CASE
             WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 3 THEN
               CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(2)] AS INT64)
             WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 2 THEN
               CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64)
             ELSE 999999
           END ASC, r.event_date ASC
         ) as rn
@@ -196,24 +196,133 @@ const queries = {
       SELECT
         athlete_id,
         NULLIF(COUNT(DISTINCT run_id), 0) as total_runs,
-        MIN(finish_time) as fastest_time
+        MIN(
+          CASE
+            WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
+              CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
+              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
+              CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+            WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
+              CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
+              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+            ELSE NULL
+          END
+        ) as fastest_s
       FROM \`${projectId}.parkrun_data.results\`
       WHERE is_unknown_athlete = false
       GROUP BY athlete_id
     )
-    SELECT v.vol_name as label, v.appearances as value, r.total_runs as run_count, r.fastest_time
+    SELECT 
+      v.vol_name as label, 
+      v.appearances as value, 
+      r.total_runs as run_count,
+      FORMAT('%02d:%02d', CAST(DIV(r.fastest_s, 60) AS INT64), CAST(MOD(r.fastest_s, 60) AS INT64)) as fastest_time
     FROM VolBase v
     LEFT JOIN RunStats r ON v.athlete_id = r.athlete_id
     ORDER BY value DESC LIMIT 20`,
   events: `
-    SELECT CAST(event_date AS STRING) as label, COUNT(*) as value, run_id 
-    FROM \`${projectId}.parkrun_data.results\` 
-    GROUP BY label, run_id ORDER BY value DESC LIMIT 20`,
+    WITH event_seconds AS (
+      SELECT
+        run_id,
+        event_date,
+        athlete_id,
+        first_name,
+        last_name,
+        finish_time,
+        CASE
+          WHEN age_category LIKE 'W%' OR age_category LIKE 'JW%' OR age_category LIKE 'SW%' OR age_category LIKE 'VW%' THEN 'Female'
+          WHEN age_category LIKE 'M%' OR age_category LIKE 'JM%' OR age_category LIKE 'SM%' OR age_category LIKE 'VM%' THEN 'Male'
+          ELSE 'Unknown'
+        END as gender,
+        CASE
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
+            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
+            CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
+            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+          ELSE NULL
+        END AS seconds
+      FROM \`${projectId}.parkrun_data.results\`
+      WHERE finish_time IS NOT NULL AND finish_time != ''
+    ),
+    event_aggs AS (
+      SELECT
+        run_id,
+        event_date,
+        COUNT(*) as value,
+        MIN(seconds) as fastest_s,
+        AVG(seconds) as mean_s,
+        MAX(seconds) as slowest_s
+      FROM event_seconds
+      GROUP BY run_id, event_date
+    )
+    SELECT
+      CAST(ea.event_date AS STRING) as label,
+      ea.value,
+      ea.run_id,
+      FORMAT('%02d:%02d', CAST(DIV(COALESCE(ea.fastest_s, 0), 60) AS INT64), CAST(MOD(COALESCE(ea.fastest_s, 0), 60) AS INT64)) as fastest_time,
+      FORMAT('%02d:%02d', CAST(DIV(CAST(ROUND(COALESCE(ea.mean_s, 0)) AS INT64), 60) AS INT64), CAST(MOD(CAST(ROUND(COALESCE(ea.mean_s, 0)) AS INT64), 60) AS INT64)) as mean_time,
+      FORMAT('%02d:%02d', CAST(DIV(COALESCE(ea.slowest_s, 0), 60) AS INT64), CAST(MOD(COALESCE(ea.slowest_s, 0), 60) AS INT64)) as slowest_time
+    FROM event_aggs ea
+    ORDER BY ea.value DESC
+    LIMIT 20`,
   clubs: `
-    SELECT club_name as label, COUNT(*) as value 
-    FROM \`${projectId}.parkrun_data.results\` 
-    WHERE club_name IS NOT NULL AND club_name != "" 
-    GROUP BY 1 ORDER BY value DESC LIMIT 20`,
+    WITH club_base AS (
+      SELECT 
+        club_name as label, 
+        COUNT(*) as value
+      FROM \`${projectId}.parkrun_data.results\` 
+      WHERE club_name IS NOT NULL AND club_name != "" AND LOWER(club_name) != 'unattached'
+      GROUP BY 1
+    ),
+    club_finishers AS (
+      SELECT
+        club_name,
+        CONCAT(first_name, ' ', last_name) as athlete_name,
+        finish_time,
+        CASE
+          WHEN age_category LIKE 'W%' OR age_category LIKE 'JW%' OR age_category LIKE 'SW%' OR age_category LIKE 'VW%' THEN 'Female'
+          WHEN age_category LIKE 'M%' OR age_category LIKE 'JM%' OR age_category LIKE 'SM%' OR age_category LIKE 'VM%' THEN 'Male'
+          ELSE 'Unknown'
+        END as gender,
+        CASE
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
+            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
+            CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
+            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+          ELSE NULL
+        END AS seconds
+      FROM \`${projectId}.parkrun_data.results\`
+      WHERE club_name IS NOT NULL AND club_name != "" AND LOWER(club_name) != 'unattached'
+        AND finish_time IS NOT NULL AND finish_time != ''
+    ),
+    RankedFinishers AS (
+      SELECT
+        club_name,
+        gender,
+        athlete_name,
+        finish_time,
+        ROW_NUMBER() OVER (PARTITION BY club_name, gender ORDER BY seconds ASC) as rn
+      FROM club_finishers
+      WHERE gender IN ('Male', 'Female')
+    )
+    SELECT
+      cb.label,
+      cb.value,
+      fm.athlete_name as fastest_male_name,
+      fm.finish_time as fastest_male_time,
+      ff.athlete_name as fastest_female_name,
+      ff.finish_time as fastest_female_time
+    FROM club_base cb
+    LEFT JOIN RankedFinishers fm ON cb.label = fm.club_name AND fm.gender = 'Male' AND fm.rn = 1
+    LEFT JOIN RankedFinishers ff ON cb.label = ff.club_name AND ff.gender = 'Female' AND ff.rn = 1
+    ORDER BY cb.value DESC
+    LIMIT 20`,
 };
 
 const queryKeys = Object.keys(queries);
@@ -230,47 +339,11 @@ const datasets = queryKeys.reduce(
 
 const listMeta = [
   {
-    key: 'athletes',
-    title: 'Top 20 Attendees (ALL)',
-    entity: 'Athlete',
-    header: 'Runs',
-    format: 'num', // Added format for main value
-    extra_cols: [
-      { header: 'Fastest', key: 'fastest_time', format: 'time_string' },
-      { header: 'Date', key: 'fastest_date', format: 'date_string' },
-      { header: 'Vol', key: 'vol_count', format: 'num' },
-    ],
-  },
-  {
-    key: 'athletes_male',
-    title: 'Top 20 Attendees (Male)',
-    entity: 'Athlete',
-    header: 'Runs',
-    format: 'num', // Added format for main value
-    extra_cols: [
-      { header: 'Fastest', key: 'fastest_time', format: 'time_string' },
-      { header: 'Date', key: 'fastest_date', format: 'date_string' },
-      { header: 'Vol', key: 'vol_count', format: 'num' },
-    ],
-  },
-  {
-    key: 'athletes_female',
-    title: 'Top 20 Attendees (Female)',
-    entity: 'Athlete',
-    header: 'Runs',
-    format: 'num', // Added format for main value
-    extra_cols: [
-      { header: 'Fastest', key: 'fastest_time', format: 'time_string' },
-      { header: 'Date', key: 'fastest_date', format: 'date_string' },
-      { header: 'Vol', key: 'vol_count', format: 'num' },
-    ],
-  },
-  {
     key: 'volunteers',
-    title: 'TOP 20 Volunteers (ALL)',
+    title: 'Top 20 Volunteers',
     entity: 'Volunteer',
     header: 'TGF Vol Count', // Corrected header
-    format: 'num', // Added format for main value
+    format: 'num',
     extra_cols: [ // Added format for extra_cols
       { header: 'Runs', key: 'run_count', format: 'num_or_dash' },
       { header: 'Fastest', key: 'fastest_time', format: 'time_string' },
@@ -290,23 +363,65 @@ const listMeta = [
     ],
   },
   {
+    key: 'athletes',
+    title: 'Top 20 Attendees (ALL)',
+    entity: 'Athlete',
+    header: 'Runs',
+    format: 'num', // Added format for main value
+    extra_cols: [ // Added format for extra_cols
+      { header: 'Fastest', key: 'fastest_time', format: 'time_string' },
+      { header: 'Date', key: 'fastest_date', format: 'date_string' },
+      { header: 'Vol', key: 'vol_count', format: 'num' },
+    ],
+  },
+  {
+    key: 'athletes_male',
+    title: 'Top 20 Attendees (Male)',
+    entity: 'Athlete',
+    header: 'Runs',
+    format: 'num', // Added format for main value
+    extra_cols: [ // Added format for extra_cols
+      { header: 'Fastest', key: 'fastest_time', format: 'time_string' },
+      { header: 'Date', key: 'fastest_date', format: 'date_string' },
+      { header: 'Vol', key: 'vol_count', format: 'num' },
+    ],
+  },
+  {
+    key: 'athletes_female',
+    title: 'Top 20 Attendees (Female)',
+    entity: 'Athlete',
+    header: 'Runs',
+    format: 'num', // Added format for main value
+    extra_cols: [ // Added format for extra_cols
+      { header: 'Fastest', key: 'fastest_time', format: 'time_string' },
+      { header: 'Date', key: 'fastest_date', format: 'date_string' },
+      { header: 'Vol', key: 'vol_count', format: 'num' },
+    ],
+  },
+  {
     key: 'clubs',
-    title: 'Clubs by Attendance',
+    title: 'Top 20 Clubs represented',
     entity: 'Running Club',
     header: 'Appearances',
-    format: 'num', // Added format for main value
+    format: 'num',
+    extra_cols: [
+      { header: 'Fastest Male', key: 'fastest_male', format: 'athlete_time_pair' },
+      { header: 'Fastest Female', key: 'fastest_female', format: 'athlete_time_pair' },
+    ],
   },
 ];
 
-function formatValue(value: any, formatType: string, row: any, colKey: string) {
-  if (value === null || value === undefined || value === '') return '-';
+function formatValue(value: any, formatType: string, row: any, colKey: string): string {
+  // Return '-' for null, undefined, empty string, or "00:00" for time strings
+  if (value === null || value === undefined || value === '' || (formatType === 'time_string' && value === '00:00')) {
+    return '-';
+  }
   
   switch (formatType) {
-    case 'date_string':
+    case 'date_string': {
       const parts = String(value).split('-');
       if (parts.length === 3) {
         const dmy = `${parts[2]}-${parts[1]}-${parts[0]}`;
-        // Only add run_id suffix for specific date columns
         if (colKey === 'fastest_date' || (colKey === 'label' && row.run_id)) {
           const rid = row.fastest_run_id || row.run_id;
           return rid ? `${dmy} (#${rid})` : dmy;
@@ -314,12 +429,13 @@ function formatValue(value: any, formatType: string, row: any, colKey: string) {
         return dmy;
       }
       return value;
+    }
     case 'time_string':
       return value; // SQL already formats it, so just return
     case 'num':
       return Number(value).toLocaleString();
     case 'num_or_dash':
-      // Display 0 as 0, only dash for truly null/undefined/empty/non-finite
+      // Display 0 as 0, only dash for truly null/undefined/empty/non-finite values
       return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value).toLocaleString() : '-';
     default:
       return String(value);
@@ -347,9 +463,9 @@ function formatValue(value: any, formatType: string, row: any, colKey: string) {
               <tr>
                 <th style="width: 60px">Rank</th>
                 <th>{meta.entity}</th>
-                <th class="text-right">{meta.header}</th>
+                <th>{meta.header}</th>
                 {meta.extra_cols?.map(col => (
-                  <th class="text-right">{col.header}</th>
+                  <th>{col.header}</th>
                 ))}
               </tr>
             </thead>
@@ -362,12 +478,22 @@ function formatValue(value: any, formatType: string, row: any, colKey: string) {
                       ? formatValue(row.label, 'date_string', row, 'label')
                       : row.label}
                   </td>
-                  <td class="text-right font-bold">
+                  <td class="font-bold" style="line-height: 1.2;">
                     {formatValue(row.value, meta.format, row, 'value')}
                   </td>
                   {meta.extra_cols?.map(col => (
-                    <td class="text-right">
-                      {formatValue(row[col.key], col.format, row, col.key)}
+                    <td style="line-height: 1.3;">
+                      {col.format === 'athlete_time_pair' ? (
+                        row[`${col.key}_name`] || row[`${col.key}_time`] ? (
+                          <>
+                            <span class="font-medium">{row[`${col.key}_name`] || 'Unknown'}</span>
+                            <br />
+                            <span class="text-xs opacity-80">{row[`${col.key}_time`] || '-'}</span>
+                          </>
+                        ) : '-'
+                      ) : (
+                        formatValue(row[col.key], col.format, row, col.key)
+                      )}
                     </td>
                   ))}
                 </tr>
@@ -476,6 +602,7 @@ function formatValue(value: any, formatType: string, row: any, colKey: string) {
   .data-table th,
   .data-table td {
     padding: 1rem 1.25rem;
+    vertical-align: top; /* Ensure content aligns to top for multi-line cells */
     border: 1px solid #e5e7eb;
   }
   .data-table th {

@@ -128,7 +128,7 @@ const allYears = [...new Set(data.map(d => d.year))]
           <th class="sortable" data-col="role"
             >Role <span class="sort-icon">↕</span></th
           >
-          <th class="text-right sortable" data-col="count"
+          <th class="sortable" data-col="count"
             >Credits <span class="sort-icon">↕</span></th
           >
         </tr>
@@ -359,7 +359,7 @@ const allYears = [...new Set(data.map(d => d.year))]
         row => `
       <tr>
         <td class="font-medium">${row.role}</td>
-        <td class="text-right">${row.count.toLocaleString()}</td>
+        <td>${row.count.toLocaleString()}</td>
       </tr>
     `,
       )
@@ -368,7 +368,7 @@ const allYears = [...new Set(data.map(d => d.year))]
     tableFooter.innerHTML = `
       <tr class="footer-row">
         <td class="font-bold">Total</td>
-        <td class="text-right font-bold">${totalCredits.toLocaleString()}</td>
+        <td class="font-bold">${totalCredits.toLocaleString()}</td>
       </tr>
     `;
   }
@@ -510,9 +510,6 @@ const allYears = [...new Set(data.map(d => d.year))]
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border-top: 2px solid #d1d5db;
-  }
-  .text-right {
-    text-align: right;
   }
   .text-muted {
     color: var(--text-muted);

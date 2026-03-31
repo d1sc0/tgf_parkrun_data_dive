@@ -1,0 +1,19 @@
+---
+import Layout from '../layouts/Layout.astro';
+import VolunteerMilestones from '../components/VolunteerMilestones.astro';
+
+// Check for user state from middleware
+const user = Astro.locals.user;
+
+// Server-side protection
+if (!user) {
+  return Astro.redirect('/login');
+}
+---
+
+<Layout
+  title="Volunteer Milestones"
+  description="Track volunteers approaching their next milestone"
+>
+  <VolunteerMilestones />
+</Layout>

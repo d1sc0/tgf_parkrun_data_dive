@@ -95,6 +95,9 @@ try {
   src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
   crossorigin=""></script>
+<script
+  src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"
+  crossorigin=""></script>
 
 <script define:vars={{ mapData, isPreview, isLoggedIn: !!user }}>
   function initMap() {
@@ -131,6 +134,7 @@ try {
     }).addTo(map);
 
     const markers = [];
+    const markerGroup = L.layerGroup();
 
     mapData.forEach(point => {
       const marker = L.circleMarker([point.lat, point.lng], {
@@ -148,10 +152,50 @@ try {
         );
       }
 
-      marker.addTo(map);
+      marker.addTo(markerGroup);
 
       markers.push([point.lat, point.lng]);
     });
+
+    // Add markers to map by default
+    markerGroup.addTo(map);
+
+    // Prepare overlays for the control
+    const overlays = {
+      'Individual Markers': markerGroup,
+    };
+
+    // Add heatmap overlay and Control for the dedicated Visitors Map page only
+    if (
+      !isPreview &&
+      isLoggedIn &&
+      mapData.length > 0 &&
+      typeof L.heatLayer === 'function'
+    ) {
+      const heatPoints = mapData.map(p => [p.lat, p.lng, p.count]);
+      const maxCount = Math.max(...mapData.map(p => p.count), 1);
+
+      const heatLayer = L.heatLayer(heatPoints, {
+        radius: 40, // Larger radius for better visibility at higher zooms
+        blur: 25, // Increased blur for smoother density transitions
+        max: maxCount,
+        minOpacity: 0.5, // Ensures low-density areas are clearly visible
+        gradient: {
+          // Vibrant color ramp from blue to red
+          0.2: '#3b82f6', // Blue (Low density)
+          0.5: '#10b981', // Green
+          0.7: '#fbbf24', // Yellow
+          1.0: '#ef4444', // Red (High density)
+        },
+      });
+
+      // Add heatLayer to map by default
+      heatLayer.addTo(map);
+      overlays['Heatmap Density'] = heatLayer;
+
+      // Add the toggle control
+      L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+    }
 
     // Auto-zoom to fit all found markers
     if (markers.length > 0) {

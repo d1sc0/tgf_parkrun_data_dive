@@ -1,0 +1,283 @@
+---
+import { runQuery } from '../lib/bigquery';
+
+const projectId = import.meta.env.GCP_PROJECT_ID;
+const datasetId = import.meta.env.BIGQUERY_DATASET_ID || 'parkrun_data';
+
+/**
+ * Query identifies volunteers, counts their unique event dates,
+ * and finds the next milestone in the sequence [10, 25, 50, 100, 250, 500].
+ */
+const milestoneQuery = `
+  WITH VolunteerCounts AS (
+    SELECT
+      athlete_id,
+      ANY_VALUE(first_name) as first_name,
+      ANY_VALUE(last_name) as last_name,
+      COUNT(DISTINCT event_date) as current_count,
+      MAX(event_date) as last_vol_date,
+      ARRAY_AGG(run_id ORDER BY event_date DESC LIMIT 1)[OFFSET(0)] as last_run_id
+    FROM \`${projectId}.${datasetId}.volunteers\`
+    WHERE athlete_id IS NOT NULL AND athlete_id != 2214
+    GROUP BY athlete_id
+    HAVING current_count > 5
+  ),
+  Milestones AS (
+    SELECT m FROM UNNEST([10, 25, 50, 100, 250, 500]) AS m
+  ),
+  NextMilestone AS (
+    SELECT
+      v.athlete_id,
+      v.first_name,
+      v.last_name,
+      v.current_count,
+      v.last_vol_date,
+      v.last_run_id,
+      MIN(m.m) as next_milestone
+    FROM VolunteerCounts v
+    INNER JOIN Milestones m ON m.m > v.current_count
+    GROUP BY 1, 2, 3, 4, 5, 6
+  )
+  SELECT
+    *,
+    (next_milestone - current_count) as remaining
+  FROM NextMilestone
+  ORDER BY last_vol_date DESC, remaining ASC
+  LIMIT 100
+`;
+
+let volunteers = [];
+try {
+  volunteers = await runQuery(milestoneQuery);
+} catch (error) {
+  console.error('Failed to fetch volunteer milestones:', error);
+}
+---
+
+<div class="milestone-container">
+  <div class="card-header">
+    <h3 class="card-title">Approaching Milestones</h3>
+    <p class="card-subtitle">
+      Volunteers sorted by credits remaining until their next milestone.
+    </p>
+  </div>
+
+  <div class="table-wrapper">
+    {
+      volunteers.length > 0 ? (
+        <table class="milestone-table">
+          <thead>
+            <tr>
+              <th>Volunteer</th>
+              <th>Current Count</th>
+              <th>Last Vol</th>
+              <th>Next Milestone</th>
+              <th>Remaining</th>
+              <th class="progress-col">Progress</th>
+            </tr>
+          </thead>
+          <tbody>
+            {volunteers.map(row => {
+              const progressPct = Math.round(
+                (row.current_count / row.next_milestone) * 100,
+              );
+              return (
+                <tr>
+                  <td>
+                    <span class="volunteer-name">
+                      {row.first_name} {row.last_name}
+                    </span>
+                    <span class="volunteer-id">A{row.athlete_id}</span>
+                  </td>
+                  <td class="count-cell">{row.current_count}</td>
+                  <td class="date-cell">
+                    {(() => {
+                      const d = row.last_vol_date;
+                      if (!d) return '-';
+                      const date =
+                        d instanceof Date ? d : new Date(d.value || d);
+                      return isNaN(date.getTime())
+                        ? '-'
+                        : date.toLocaleDateString('en-GB').split('/').join('-');
+                    })()}
+                    {row.last_run_id && (
+                      <span class="run-id-tag"> (#{row.last_run_id})</span>
+                    )}
+                  </td>
+                  <td class="milestone-cell">
+                    <span class={`milestone-badge m-${row.next_milestone}`}>
+                      {row.next_milestone}
+                    </span>
+                  </td>
+                  <td
+                    class={`remaining-cell ${row.remaining <= 3 ? 'urgent' : ''}`}
+                  >
+                    {row.remaining} {row.remaining === 1 ? 'event' : 'events'}
+                  </td>
+                  <td class="progress-cell">
+                    <div class="progress-bar-bg">
+                      <div
+                        class="progress-bar-fill"
+                        style={`width: ${progressPct}%`}
+                      />
+                    </div>
+                    <span class="progress-text">{progressPct}%</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <p class="no-data">No upcoming milestones found.</p>
+      )
+    }
+  </div>
+</div>
+
+<style>
+  .milestone-container {
+    background: white;
+    border-radius: 1.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+  }
+  .card-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .card-title {
+    font-size: 1.125rem;
+    font-weight: 800;
+    color: #111827;
+    margin: 0;
+  }
+  .card-subtitle {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin: 0.25rem 0 0 0;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+  .milestone-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .milestone-table th {
+    background: #f9fafb;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+  }
+  .milestone-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+  }
+
+  .volunteer-name {
+    display: block;
+    font-weight: 700;
+    color: #111827;
+  }
+  .volunteer-id {
+    font-size: 0.75rem;
+    color: #9ca3af;
+  }
+
+  .run-id-tag {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    font-weight: 500;
+  }
+
+  .date-cell {
+    color: #6b7280;
+  }
+
+  .count-cell {
+    font-weight: 700;
+    color: #374151;
+  }
+
+  .milestone-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    font-weight: 800;
+    color: white;
+    font-size: 0.75rem;
+  }
+  .m-10 {
+    background: #6b7280;
+  }
+  .m-25 {
+    background: #7c3aed;
+  }
+  .m-50 {
+    background: #ef4444;
+  }
+  .m-100 {
+    background: #111827;
+  }
+  .m-250 {
+    background: #10b981;
+  }
+  .m-500 {
+    background: #3b82f6;
+  }
+
+  .remaining-cell {
+    font-weight: 600;
+    color: #6b7280;
+  }
+  .remaining-cell.urgent {
+    color: #ef4444;
+    font-weight: 800;
+  }
+
+  .progress-cell {
+    min-width: 140px;
+  }
+  .progress-bar-bg {
+    height: 0.5rem;
+    background: #f3f4f6;
+    border-radius: 9999px;
+    overflow: hidden;
+    width: 100px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: #2563eb;
+    border-radius: 9999px;
+  }
+  .progress-text {
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #6b7280;
+  }
+
+  .no-data {
+    padding: 3rem;
+    text-align: center;
+    color: #9ca3af;
+  }
+
+  @media (max-width: 640px) {
+    .progress-col,
+    .progress-cell {
+      display: none;
+    }
+  }
+</style>

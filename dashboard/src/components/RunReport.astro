@@ -4,17 +4,34 @@ import { runQuery } from '../lib/bigquery';
 const projectId = import.meta.env.GCP_PROJECT_ID;
 const datasetId = import.meta.env.BIGQUERY_DATASET_ID || 'parkrun_data';
 
+let targetRunId = parseInt(Astro.url.searchParams.get('run') || '', 10);
+if (isNaN(targetRunId)) targetRunId = -1;
+
 /**
  * This query fetches stats for the latest run and compares them to the previous run.
  * It calculates: Finishers, Volunteers, New Parkrunners (RunTotal=1), and PBs.
  */
 const reportQuery = `
-  WITH LatestRuns AS (
+  WITH AllRuns AS (
     SELECT run_id, event_date 
     FROM \`${projectId}.${datasetId}.results\` 
-    GROUP BY 1, 2 
-    ORDER BY event_date DESC 
-    LIMIT 2
+    GROUP BY 1, 2
+  ),
+  OrderedRuns AS (
+    SELECT *, 
+           LAG(run_id) OVER (ORDER BY event_date ASC) as prev_id,
+           LEAD(run_id) OVER (ORDER BY event_date ASC) as next_id
+    FROM AllRuns
+  ),
+  CurrentRun AS (
+    SELECT * FROM OrderedRuns 
+    WHERE (@targetRunId = -1 AND run_id = (SELECT MAX(run_id) FROM AllRuns))
+       OR (run_id = @targetRunId)
+  ),
+  LatestRuns AS (
+    SELECT run_id, event_date FROM CurrentRun
+    UNION ALL
+    SELECT run_id, event_date FROM AllRuns WHERE run_id = (SELECT prev_id FROM CurrentRun)
   ),
   RunMetrics AS (
     SELECT
@@ -95,8 +112,18 @@ const reportQuery = `
         ANY_VALUE(v.last_name) as last_name, 
         v.athlete_id,
         GREATEST(
-          IFNULL((SELECT MAX(vol_count) FROM \`${projectId}.${datasetId}.results\` r WHERE r.athlete_id = v.athlete_id), 0),
-          IFNULL((SELECT COUNT(DISTINCT event_date) FROM \`${projectId}.${datasetId}.volunteers\` vsum WHERE vsum.athlete_id = v.athlete_id), 0)
+          IFNULL((
+            SELECT MAX(vol_count) 
+            FROM \`${projectId}.${datasetId}.results\` r 
+            WHERE r.athlete_id = v.athlete_id 
+              AND r.event_date <= (SELECT event_date FROM CurrentRun)
+          ), 0),
+          IFNULL((
+            SELECT COUNT(DISTINCT event_date) 
+            FROM \`${projectId}.${datasetId}.volunteers\` vsum 
+            WHERE vsum.athlete_id = v.athlete_id 
+              AND vsum.event_date <= (SELECT event_date FROM CurrentRun)
+          ), 0)
         ) as count,
         'Volunteer' as type
       FROM \`${projectId}.${datasetId}.volunteers\` v
@@ -141,12 +168,14 @@ const reportQuery = `
     (SELECT AS STRUCT * FROM RunMetrics WHERE run_id = (SELECT MIN(run_id) FROM LatestRuns)) as previous,
     ARRAY(SELECT AS STRUCT * FROM FirstFinishers WHERE rn = 1 ORDER BY finish_position ASC) as first_finishers,
     ARRAY(SELECT AS STRUCT * FROM Milestones ORDER BY count DESC, type ASC) as milestones,
-    ARRAY(SELECT AS STRUCT * FROM Distribution ORDER BY minute_bucket ASC) as distribution
+    ARRAY(SELECT AS STRUCT * FROM Distribution ORDER BY minute_bucket ASC) as distribution,
+    (SELECT prev_id FROM CurrentRun) as prev_run_id,
+    (SELECT next_id FROM CurrentRun) as next_run_id
 `;
 
 let data = null;
 try {
-  const results = await runQuery(reportQuery);
+  const results = await runQuery(reportQuery, { targetRunId });
   data = results[0];
 } catch (e) {
   console.error('Run Report Error:', e);
@@ -249,6 +278,17 @@ const chartData = dist.map(d => d.count);
 ---
 
 <div class="report-container">
+  {
+    !data && (
+      <div class="error-card">
+        <p>
+          Could not find report for Event #
+          {targetRunId === -1 ? 'Latest' : targetRunId}. Please verify the event
+          number or use the navigation below.
+        </p>
+      </div>
+    )
+  }
   <header class="report-header">
     <h2 class="section-title">Event #{latest.run_id} Report</h2>
     <p class="event-date">
@@ -443,6 +483,24 @@ const chartData = dist.map(d => d.count);
       }
     </div>
   </div>
+
+  <nav class="report-pagination">
+    {
+      data?.prev_run_id && (
+        <a href={`/run-report?run=${data.prev_run_id}`} class="pag-link prev">
+          ← Event #{data.prev_run_id}
+        </a>
+      )
+    }
+    <div class="pag-spacer"></div>
+    {
+      data?.next_run_id && (
+        <a href={`/run-report?run=${data.next_run_id}`} class="pag-link next">
+          Event #{data.next_run_id} →
+        </a>
+      )
+    }
+  </nav>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -789,5 +847,35 @@ const chartData = dist.map(d => d.count);
     font-size: 0.875rem;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .report-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .pag-link {
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #2563eb;
+    padding: 0.5rem 1rem;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 0.75rem;
+    transition: all 0.2s;
+  }
+
+  .pag-link:hover {
+    background: #f3f4f6;
+    border-color: #2563eb;
+  }
+
+  .pag-spacer {
+    flex: 1;
   }
 </style>

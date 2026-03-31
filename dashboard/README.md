@@ -8,11 +8,28 @@ The frontend component of the Parkrun Data Dive. This is an **Astro SSR** applic
 - **Shared SQL:** SQL queries are imported directly from the root `/sql` directory using `node:fs`, ensuring the dashboard and ETL never drift apart.
 - **Global Styling:** All baseline resets and design tokens (colors/typography) are centralized in `Layout.astro` using `is:global`.
 
-## 📁 Key Directories
+## 🚀 Key Features
+
+- **Latest Run Report:** A comprehensive breakdown of the most recent event including finish time distribution (ApexCharts), first finishers, and top age-grade performances.
+  - **Weather Context:** Integrates historical weather data (temp, wind, conditions) from the Open-Meteo API at the start time of each event.
+  - **Trend Analysis:** Automated comparison of finishers, volunteers, and PBs against the previous event.
+  - **Archive Navigation:** Full pagination support to view reports for any past event.
+- **Volunteer Milestone Tracker:** Identification of volunteers approaching major milestones (10, 25, 50, 100, 250, 500).
+  - **Hybrid Data:** Combines local event-specific volunteer history with global `vol_count` data from the results table for maximum accuracy.
+  - **Interactive Table:** Supports real-time client-side filtering (name/ID) and multi-column sorting.
+- **Visitors Map:** A geographic visualization of where athletes travel from.
+  - **Heatmap Layer:** Toggleable density overlay to see "hot spots" of visitor origin.
+  - **Smart Preview:** homepage widget provides a static, zero-interaction snapshot for public viewing, while the full interactive version remains protected.
+- **Course Records:** Deep-dive into the fastest times ever recorded at the event, filterable by age category and gender.
+
+## � Key Directories
 
 - `src/layouts/`: The `Layout.astro` component wraps all pages with a 1024px max-width container and global styles.
 - `src/components/`:
   - `HeadlineStats.astro`: A "Smart Widget" that handles its own BigQuery data fetching and key normalization.
+  - `RunReport.astro`: Complex reporter component using BigQuery window functions for historical navigation.
+  - `VolunteerMilestones.astro`: Mobile-optimized tracker using a card-based layout on small screens.
+  - `HomeRunMap.astro`: Leaflet-based mapping component with `ResizeObserver` for layout stability.
   - `Header.astro`: Contains the responsive navigation and animated hamburger-to-X SVG logic.
 - `src/lib/`: Backend utilities for BigQuery authentication (ADC compatible).
 

@@ -440,7 +440,7 @@ const chartData = dist.map(d => d.count);
     <div class="content-card chart-card">
       <h3 class="card-title">Finish Time Distribution</h3>
       <div class="canvas-wrapper">
-        <canvas id="distributionChart"></canvas>
+        <div id="distributionChart"></div>
       </div>
     </div>
 
@@ -518,48 +518,54 @@ const chartData = dist.map(d => d.count);
   </nav>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script define:vars={{ chartLabels, chartData }}>
   function initChart() {
-    const canvas = document.getElementById('distributionChart');
-    if (!canvas) return;
+    const container = document.getElementById('distributionChart');
+    if (!container) return;
 
-    // Wait for the Chart.js library to load from the CDN
-    if (typeof Chart === 'undefined') {
+    // Wait for the ApexCharts library to load from the CDN
+    if (typeof ApexCharts === 'undefined') {
       setTimeout(initChart, 100);
       return;
     }
 
-    // Ensure we don't try to re-use a canvas that already has a chart
-    const existingChart = Chart.getChart(canvas);
-    if (existingChart) {
-      existingChart.destroy();
-    }
+    // Clear container for idempotent re-initialization (Astro View Transitions)
+    container.innerHTML = '';
 
-    new Chart(canvas, {
-      type: 'bar',
-      data: {
-        labels: chartLabels,
-        datasets: [
-          {
-            label: 'Finishers',
-            data: chartData,
-            backgroundColor: '#3b82f6',
-            borderRadius: 4,
-            barPercentage: 0.8,
-          },
-        ],
+    const options = {
+      series: [
+        {
+          name: 'Finishers',
+          data: chartData,
+        },
+      ],
+      chart: {
+        type: 'bar',
+        height: 300,
+        toolbar: { show: false },
+        animations: { enabled: true },
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          y: { beginAtZero: true, grid: { display: false } },
-          x: { grid: { display: false } },
+      plotOptions: {
+        bar: {
+          borderRadius: 4,
+          columnWidth: '70%',
         },
       },
-    });
+      dataLabels: { enabled: false },
+      colors: ['#3b82f6'],
+      xaxis: {
+        categories: chartLabels,
+        labels: { style: { fontSize: '12px', fontWeight: 600 } },
+      },
+      yaxis: {
+        labels: { style: { fontSize: '12px' } },
+      },
+      grid: { borderColor: '#f3f4f6' },
+    };
+
+    const chart = new ApexCharts(container, options);
+    chart.render();
   }
   initChart();
   document.addEventListener('astro:page-load', initChart);

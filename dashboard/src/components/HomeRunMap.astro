@@ -62,7 +62,7 @@ try {
 }
 ---
 
-<div class="map-card">
+<div class:list={['map-card', { 'is-preview-card': isPreview }]}>
   {
     !isPreview && (
       <div class="card-header">
@@ -117,7 +117,7 @@ try {
             minZoom: 1,
           }
         : {
-            minZoom: 1,
+            minZoom: 2,
           };
 
     const map = L.map('home-run-map', mapOptions).setView(
@@ -180,6 +180,10 @@ try {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     overflow: hidden;
     border: 1px solid #e5e7eb;
+  }
+
+  .map-card.is-preview-card {
+    box-shadow: none;
   }
 
   .card-header {

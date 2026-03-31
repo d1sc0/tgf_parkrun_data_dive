@@ -66,7 +66,7 @@ try {
   {
     !isPreview && (
       <div class="card-header">
-        <h3 class="card-title">Visitors Map</h3>
+        <h3 class="card-title">Interactive Visitor Map</h3>
         <p class="card-subtitle">
           Geographic spread of athletes based on their registered home run.
         </p>
@@ -98,8 +98,8 @@ try {
 
 <script define:vars={{ mapData, isPreview, isLoggedIn: !!user }}>
   function initMap() {
-    // Safety check for Leaflet availability
-    if (typeof L === 'undefined') {
+    const container = document.getElementById('home-run-map');
+    if (!container || typeof L === 'undefined') {
       setTimeout(initMap, 100);
       return;
     }
@@ -114,10 +114,16 @@ try {
             doubleClickZoom: false,
             touchZoom: false,
             attributionControl: false,
+            minZoom: 1,
           }
-        : {};
+        : {
+            minZoom: 1,
+          };
 
-    const map = L.map('home-run-map', mapOptions).setView([54.5, -3], 6);
+    const map = L.map('home-run-map', mapOptions).setView(
+      [54.5, -3],
+      isPreview ? 6 : 7,
+    );
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:
@@ -151,6 +157,15 @@ try {
     if (markers.length > 0) {
       map.fitBounds(L.latLngBounds(markers), { padding: [50, 50] });
     }
+
+    // Use ResizeObserver to ensure map fills container even if layout shifts
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    resizeObserver.observe(container);
+
+    // Initial calculation once map is ready
+    map.whenReady(() => map.invalidateSize());
   }
 
   initMap();
@@ -187,13 +202,17 @@ try {
 
   .map-wrapper {
     position: relative;
+    display: flex;
+    flex-direction: column;
   }
 
   .map-container {
-    height: 600px;
+    height: 400px;
     width: 100%;
     z-index: 1;
+    display: block;
     background: #f8fafc;
+    overflow: hidden;
   }
 
   .map-container.is-preview {
@@ -217,6 +236,15 @@ try {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border: 1px solid #e5e7eb;
+  }
+
+  @media (max-width: 640px) {
+    .map-card {
+      border-radius: 1rem;
+    }
+    .card-header {
+      padding: 1rem;
+    }
   }
 
   /* Fix for leaflet popup styles to match dashboard theme */

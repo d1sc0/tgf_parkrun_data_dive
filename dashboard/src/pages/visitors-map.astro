@@ -1,0 +1,19 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HomeRunMap from '../components/HomeRunMap.astro';
+
+// Check for user state from middleware (src/middleware.ts)
+const user = Astro.locals.user;
+
+// Server-side protection: Redirect to login if not authenticated
+if (!user) {
+  return Astro.redirect('/login');
+}
+---
+
+<Layout
+  title="Visitors Map"
+  description="Geographic distribution of athletes' home parkruns"
+>
+  <HomeRunMap />
+</Layout>

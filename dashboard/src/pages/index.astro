@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import HeadlineStats from '../components/HeadlineStats.astro';
+import HomeRunMap from '../components/HomeRunMap.astro';
 ---
 
 <Layout
@@ -8,4 +9,13 @@ import HeadlineStats from '../components/HeadlineStats.astro';
   description="Headline TGF parkrunevent statistics"
 >
   <HeadlineStats />
+  <section class="map-row">
+    <HomeRunMap isPreview={true} />
+  </section>
 </Layout>
+
+<style>
+  .map-row {
+    margin-top: 1rem;
+  }
+</style>

@@ -25,7 +25,34 @@ const reportQuery = `
       COUNTIF(r.run_total = 1 AND r.is_unknown_athlete = false) as new_parkrunners,
       COUNTIF(r.was_genuine_pb = true) as pbs,
       COUNTIF(r.is_unknown_athlete = true) as unknowns,
-      (SELECT COUNT(DISTINCT athlete_id) FROM \`${projectId}.${datasetId}.volunteers\` v WHERE v.run_id = r.run_id) as volunteers
+      (SELECT COUNT(DISTINCT athlete_id) FROM \`${projectId}.${datasetId}.volunteers\` v WHERE v.run_id = r.run_id) as volunteers,
+      MIN(
+        CASE
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 + CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 + CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 + CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+          ELSE NULL
+        END
+      ) as fastest_s,
+      MAX(
+        CASE
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 + CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 + CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 + CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+          ELSE NULL
+        END
+      ) as slowest_s,
+      AVG(
+        CASE
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 + CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 + CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
+          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
+            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 + CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
+          ELSE NULL
+        END
+      ) as mean_s
     FROM \`${projectId}.${datasetId}.results\` r
     WHERE r.run_id IN (SELECT run_id FROM LatestRuns)
     GROUP BY 1
@@ -37,6 +64,7 @@ const reportQuery = `
       last_name,
       finish_time,
       age_grading,
+      finish_position,
       CASE 
         WHEN age_category LIKE 'M%' OR age_category LIKE 'JM%' OR age_category LIKE 'SM%' OR age_category LIKE 'VM%' THEN 'Male'
         ELSE 'Female'
@@ -75,9 +103,24 @@ const reportQuery = `
     GROUP BY 1
   )
   SELECT 
-    (SELECT AS STRUCT * FROM RunMetrics WHERE run_id = (SELECT MAX(run_id) FROM LatestRuns)) as latest,
+    (SELECT AS STRUCT 
+        *,
+        CASE
+          WHEN fastest_s >= 3600 THEN FORMAT('%02d:%02d:%02d', CAST(DIV(fastest_s, 3600) AS INT64), CAST(DIV(MOD(fastest_s, 3600), 60) AS INT64), CAST(MOD(fastest_s, 60) AS INT64))
+          ELSE FORMAT('%02d:%02d', CAST(DIV(fastest_s, 60) AS INT64), CAST(MOD(fastest_s, 60) AS INT64))
+        END as fastest_time,
+        CASE
+          WHEN slowest_s >= 3600 THEN FORMAT('%02d:%02d:%02d', CAST(DIV(slowest_s, 3600) AS INT64), CAST(DIV(MOD(slowest_s, 3600), 60) AS INT64), CAST(MOD(slowest_s, 60) AS INT64))
+          ELSE FORMAT('%02d:%02d', CAST(DIV(slowest_s, 60) AS INT64), CAST(MOD(slowest_s, 60) AS INT64))
+        END as slowest_time,
+        CASE
+          WHEN mean_s >= 3600 THEN FORMAT('%02d:%02d:%02d', CAST(DIV(CAST(ROUND(mean_s) AS INT64), 3600) AS INT64), CAST(DIV(MOD(CAST(ROUND(mean_s) AS INT64), 3600), 60) AS INT64), CAST(MOD(CAST(ROUND(mean_s) AS INT64), 60) AS INT64))
+          ELSE FORMAT('%02d:%02d', CAST(DIV(CAST(ROUND(mean_s) AS INT64), 60) AS INT64), CAST(MOD(CAST(ROUND(mean_s) AS INT64), 60) AS INT64))
+        END as mean_time
+     FROM RunMetrics 
+     WHERE run_id = (SELECT MAX(run_id) FROM LatestRuns)) as latest,
     (SELECT AS STRUCT * FROM RunMetrics WHERE run_id = (SELECT MIN(run_id) FROM LatestRuns)) as previous,
-    ARRAY(SELECT AS STRUCT * FROM FirstFinishers WHERE rn = 1) as first_finishers,
+    ARRAY(SELECT AS STRUCT * FROM FirstFinishers WHERE rn = 1 ORDER BY finish_position ASC) as first_finishers,
     ARRAY(SELECT AS STRUCT * FROM Milestones ORDER BY run_total DESC) as milestones,
     ARRAY(SELECT AS STRUCT * FROM Distribution ORDER BY minute_bucket ASC) as distribution
 `;
@@ -155,6 +198,21 @@ const getTrend = (curr, old) => {
   return { val: 0, icon: '−', color: 'neutral' };
 };
 
+const getTimeTrend = (curr, old) => {
+  if (curr === null || curr === undefined || old === null || old === undefined)
+    return { val: '−', icon: '', color: 'neutral' };
+  const diff = curr - old;
+  const absDiff = Math.abs(diff);
+  const mins = Math.floor(absDiff / 60);
+  const secs = Math.round(absDiff % 60);
+  const formatted =
+    mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${secs}s`;
+
+  if (diff < 0) return { val: formatted, icon: '↑', color: 'up' }; // Faster (numerically lower)
+  if (diff > 0) return { val: formatted, icon: '↓', color: 'down' }; // Slower (numerically higher)
+  return { val: '0s', icon: '−', color: 'neutral' };
+};
+
 const trends = {
   finishers: getTrend(latest.finishers, prev.finishers),
   volunteers: getTrend(latest.volunteers, prev.volunteers),
@@ -162,6 +220,9 @@ const trends = {
   new_parkrunners: getTrend(latest.new_parkrunners, prev.new_parkrunners),
   pbs: getTrend(latest.pbs, prev.pbs),
   unknowns: getTrend(latest.unknowns, prev.unknowns),
+  fastest: getTimeTrend(latest.fastest_s, prev.fastest_s),
+  mean: getTimeTrend(latest.mean_s, prev.mean_s),
+  slowest: getTimeTrend(latest.slowest_s, prev.slowest_s),
 };
 
 const chartLabels = dist.map(d => `${d.minute_bucket}:00`);
@@ -209,23 +270,23 @@ const chartData = dist.map(d => d.count);
     </div>
 
     <div class="stat-card">
-      <span class="stat-label">TGF First Timers</span>
-      <div class="stat-main">
-        <span class="stat-value">{latest.first_timers || 0}</span>
-        <span class:list={['trend-tag', trends.first_timers.color]}>
-          {trends.first_timers.icon}
-          {trends.first_timers.val}
-        </span>
-      </div>
-    </div>
-
-    <div class="stat-card">
       <span class="stat-label">New parkrunners</span>
       <div class="stat-main">
         <span class="stat-value">{latest.new_parkrunners || 0}</span>
         <span class:list={['trend-tag', trends.new_parkrunners.color]}>
           {trends.new_parkrunners.icon}
           {trends.new_parkrunners.val}
+        </span>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <span class="stat-label">TGF First Timers</span>
+      <div class="stat-main">
+        <span class="stat-value">{latest.first_timers || 0}</span>
+        <span class:list={['trend-tag', trends.first_timers.color]}>
+          {trends.first_timers.icon}
+          {trends.first_timers.val}
         </span>
       </div>
     </div>
@@ -266,11 +327,47 @@ const chartData = dist.map(d => d.count);
               </div>
               <div class="ff-stats">
                 <span class="ff-time">{f.finish_time}</span>
-                <span class="ff-grading">{f.age_grading?.toFixed(1)}%</span>
+                <span class="ff-grading">{f.age_grading?.toFixed(2)}%</span>
               </div>
             </div>
           ))
         }
+      </div>
+    </div>
+
+    <div class="stat-card time-stats-card">
+      <h3 class="card-title">Run Times</h3>
+      <div class="time-stats-list">
+        <div class="time-stat-row">
+          <span class="ts-label">Fastest</span>
+          <div class="ts-result">
+            <span class="ts-value">{latest.fastest_time || '-'}</span>
+            <span class:list={['trend-tag', trends.fastest.color]}>
+              {trends.fastest.icon}
+              {trends.fastest.val}
+            </span>
+          </div>
+        </div>
+        <div class="time-stat-row">
+          <span class="ts-label">Average</span>
+          <div class="ts-result">
+            <span class="ts-value">{latest.mean_time || '-'}</span>
+            <span class:list={['trend-tag', trends.mean.color]}>
+              {trends.mean.icon}
+              {trends.mean.val}
+            </span>
+          </div>
+        </div>
+        <div class="time-stat-row">
+          <span class="ts-label">Slowest</span>
+          <div class="ts-result">
+            <span class="ts-value">{latest.slowest_time || '-'}</span>
+            <span class:list={['trend-tag', trends.slowest.color]}>
+              {trends.slowest.icon}
+              {trends.slowest.val}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -461,15 +558,21 @@ const chartData = dist.map(d => d.count);
     .stats-grid {
       grid-template-columns: repeat(3, 1fr);
     }
-    .weather-card,
-    .ff-card {
+    .weather-card {
       grid-column: span 3;
+    }
+    .ff-card {
+      grid-column: span 2;
+    }
+    .time-stats-card {
+      grid-column: span 1;
     }
   }
 
   @media (max-width: 1023px) {
     .weather-card,
-    .ff-card {
+    .ff-card,
+    .time-stats-card {
       grid-column: span 2;
     }
   }
@@ -512,6 +615,45 @@ const chartData = dist.map(d => d.count);
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  }
+
+  .time-stats-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+
+  .time-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .time-stat-row:last-child {
+    border-bottom: none;
+  }
+
+  .ts-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .ts-result {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .ts-value {
+    font-weight: 800;
+    color: var(--text-main);
+    font-family:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 
   .ff-item {

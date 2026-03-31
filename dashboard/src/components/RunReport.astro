@@ -118,6 +118,17 @@ const reportQuery = `
     WHERE run_id = (SELECT MAX(run_id) FROM LatestRuns)
     ORDER BY age_grading DESC
     LIMIT 5
+  ),
+  Visitors AS (
+    SELECT home_run_name, COUNT(*) as count
+    FROM \`${projectId}.${datasetId}.results\`
+    WHERE run_id = (SELECT MAX(run_id) FROM LatestRuns)
+      AND home_run_name IS NOT NULL AND home_run_name != ''
+      AND home_run_name != 'The Great Field parkrun'
+      AND is_unknown_athlete = false
+    GROUP BY 1
+    ORDER BY count DESC
+    LIMIT 15
   )
   SELECT 
     (SELECT AS STRUCT 
@@ -140,6 +151,7 @@ const reportQuery = `
     ARRAY(SELECT AS STRUCT * FROM FirstFinishers WHERE rn = 1 ORDER BY finish_position ASC) as first_finishers,
     ARRAY(SELECT AS STRUCT * FROM Distribution ORDER BY minute_bucket ASC) as distribution,
     ARRAY(SELECT AS STRUCT * FROM TopAgeGrades) as top_age_grades,
+    ARRAY(SELECT AS STRUCT * FROM Visitors) as visitors,
     (SELECT prev_id FROM CurrentRun) as prev_run_id,
     (SELECT next_id FROM CurrentRun) as next_run_id
 `;
@@ -157,6 +169,7 @@ const prev = data?.previous || {};
 const firsts = data?.first_finishers || [];
 const dist = data?.distribution || [];
 const topAgeGrades = data?.top_age_grades || [];
+const visitors = data?.visitors || [];
 
 // Weather Fetching Logic (Open-Meteo)
 let weather = null;
@@ -461,6 +474,26 @@ const chartData = dist.map(d => d.count);
               </div>
             </div>
           ))
+        }
+      </div>
+    </div>
+
+    <div class="content-card">
+      <h3 class="card-title">Visitors From</h3>
+      <div class="visitors-container">
+        {
+          visitors.length > 0 ? (
+            <div class="visitors-tags">
+              {visitors.map(v => (
+                <div class="v-tag">
+                  <span class="v-name">{v.home_run_name}</span>
+                  <span class="v-count">{v.count}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p class="empty-state">No visitors from other parkruns recorded.</p>
+          )
         }
       </div>
     </div>
@@ -824,6 +857,38 @@ const chartData = dist.map(d => d.count);
     font-size: 0.875rem;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .visitors-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .v-tag {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #f9fafb;
+    padding: 0.375rem 0.75rem;
+    border-radius: 2rem;
+    border: 1px solid #f3f4f6;
+  }
+
+  .v-name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+
+  .v-count {
+    font-size: 0.7rem;
+    font-weight: 800;
+    background: white;
+    color: #2563eb;
+    padding: 0.125rem 0.375rem;
+    border-radius: 1rem;
+    border: 1px solid #e5e7eb;
   }
 
   .report-pagination {

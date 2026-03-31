@@ -21,7 +21,8 @@ const reportQuery = `
       r.run_id,
       ANY_VALUE(r.event_date) as event_date,
       COUNT(*) as finishers,
-      COUNTIF(r.run_total = 1 AND r.is_unknown_athlete = false) as newcomers,
+      COUNTIF(r.was_first_run_at_event = true AND r.is_unknown_athlete = false) as first_timers,
+      COUNTIF(r.run_total = 1 AND r.is_unknown_athlete = false) as new_parkrunners,
       COUNTIF(r.was_genuine_pb = true) as pbs,
       COUNTIF(r.is_unknown_athlete = true) as unknowns,
       (SELECT COUNT(DISTINCT athlete_id) FROM \`${projectId}.${datasetId}.volunteers\` v WHERE v.run_id = r.run_id) as volunteers
@@ -96,7 +97,8 @@ const milestones = data?.milestones || [];
 const dist = data?.distribution || [];
 
 const getTrend = (curr, old) => {
-  if (!old) return { val: 0, icon: '−', color: 'neutral' };
+  if (old === undefined || old === null)
+    return { val: 0, icon: '−', color: 'neutral' };
   const diff = curr - old;
   if (diff > 0) return { val: diff, icon: '↑', color: 'up' };
   if (diff < 0) return { val: Math.abs(diff), icon: '↓', color: 'down' };
@@ -106,7 +108,8 @@ const getTrend = (curr, old) => {
 const trends = {
   finishers: getTrend(latest.finishers, prev.finishers),
   volunteers: getTrend(latest.volunteers, prev.volunteers),
-  newcomers: getTrend(latest.newcomers, prev.newcomers),
+  first_timers: getTrend(latest.first_timers, prev.first_timers),
+  new_parkrunners: getTrend(latest.new_parkrunners, prev.new_parkrunners),
   pbs: getTrend(latest.pbs, prev.pbs),
   unknowns: getTrend(latest.unknowns, prev.unknowns),
 };
@@ -156,18 +159,29 @@ const chartData = dist.map(d => d.count);
     </div>
 
     <div class="stat-card">
-      <span class="stat-label">New parkrunners</span>
+      <span class="stat-label">TGF First Timers</span>
       <div class="stat-main">
-        <span class="stat-value">{latest.newcomers || 0}</span>
-        <span class:list={['trend-tag', trends.newcomers.color]}>
-          {trends.newcomers.icon}
-          {trends.newcomers.val}
+        <span class="stat-value">{latest.first_timers || 0}</span>
+        <span class:list={['trend-tag', trends.first_timers.color]}>
+          {trends.first_timers.icon}
+          {trends.first_timers.val}
         </span>
       </div>
     </div>
 
     <div class="stat-card">
-      <span class="stat-label">Unknowns</span>
+      <span class="stat-label">New parkrunners</span>
+      <div class="stat-main">
+        <span class="stat-value">{latest.new_parkrunners || 0}</span>
+        <span class:list={['trend-tag', trends.new_parkrunners.color]}>
+          {trends.new_parkrunners.icon}
+          {trends.new_parkrunners.val}
+        </span>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <span class="stat-label">Unknown Athletes</span>
       <div class="stat-main">
         <span class="stat-value">{latest.unknowns || 0}</span>
         <span class:list={['trend-tag', trends.unknowns.color]}>
@@ -178,7 +192,7 @@ const chartData = dist.map(d => d.count);
     </div>
 
     <div class="stat-card">
-      <span class="stat-label">PBs Achieved</span>
+      <span class="stat-label">PB's Achieved</span>
       <div class="stat-main">
         <span class="stat-value">{latest.pbs || 0}</span>
         <span class:list={['trend-tag', trends.pbs.color]}>

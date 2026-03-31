@@ -294,12 +294,18 @@ try {
           ) as HTMLElement | null;
           const aVal = aCell?.dataset.value || '';
           const bVal = bCell?.dataset.value || '';
-          const aNum = parseFloat(aVal);
-          const bNum = parseFloat(bVal);
 
-          if (!isNaN(aNum) && !isNaN(bNum)) {
+          // ISO dates (YYYY-MM-DD) sort correctly as strings.
+          // We also check if the values are strictly numeric to avoid parseFloat 
+          // incorrectly parsing dates as years.
+          const isNumeric = sortKey !== 'date' && !isNaN(parseFloat(aVal)) && isFinite(Number(aVal));
+
+          if (isNumeric) {
+            const aNum = parseFloat(aVal);
+            const bNum = parseFloat(bVal);
             return newDir === 'asc' ? aNum - bNum : bNum - aNum;
           }
+
           return newDir === 'asc'
             ? aVal.localeCompare(bVal)
             : bVal.localeCompare(aVal);
@@ -543,25 +549,59 @@ try {
   }
 
   @media (max-width: 640px) {
+    .milestone-container {
+      background: transparent;
+      border: none;
+      box-shadow: none;
+    }
+    .card-header {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
       /* Transform the header into a Sort Button Bar */
     .milestone-table thead {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
-      padding: 1rem;
-      background: #f9fafb;
-      border-bottom: 1px solid #e5e7eb;
+            gap: 0.4rem;
+      padding: 0.75rem;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .milestone-table thead::before {
+      content: 'Sort results by:';
+      width: 100%;
+      font-size: 0.6rem;
+      font-weight: 800;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.15rem;
+      margin-left: 0.25rem;
     }
     .milestone-table thead tr { display: contents; }
     .milestone-table th {
-      flex: 1 1 calc(50% - 0.5rem);
+      flex: 1 1 calc(50% - 0.4rem);
       padding: 0.5rem 1.5rem 0.5rem 0.75rem !important;
       border-radius: 0.5rem;
       border: 1px solid #d1d5db;
       background: white !important;
-      font-size: 0.65rem;
+      font-size: 0.6rem;
+      color: #4b5563;
       box-shadow: 0 1px 2px rgba(0,0,0,0.05);
       white-space: nowrap;
+    }
+
+    .milestone-table th.sort-asc,
+    .milestone-table th.sort-desc {
+      border-color: #2563eb;
+      background: #eff6ff !important;
+      color: #2563eb;
+      font-weight: 800;
     }
     .milestone-table th::after { right: 0.4rem; }
 
@@ -577,8 +617,8 @@ try {
       border: 1px solid #e5e7eb;
       border-radius: 1rem;
       overflow: hidden;
-      /* background: white;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); */
+      background: white;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
     .milestone-table td {
       display: flex;

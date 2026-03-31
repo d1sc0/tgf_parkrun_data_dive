@@ -5,7 +5,7 @@ The frontend component of the Parkrun Data Dive. This is an **Astro SSR** applic
 ## 🛠 Technical Implementation
 
 - **SSR Mode:** The application runs in server mode (Node/Firebase) to keep BigQuery credentials and raw data off the client side.
-- **Shared SQL:** SQL queries are imported directly from the root `/sql` directory using `node:fs`, ensuring the dashboard and ETL never drift apart.
+- ** BigQuery SQL** queries are defined as string literals directly within the Astro components, referencing environment variables for project and dataset IDs. They are executed via a `runQuery` utility.
 - **Global Styling:** All baseline resets and design tokens (colors/typography) are centralized in `Layout.astro` using `is:global`.
 
 ## 🚀 Key Features

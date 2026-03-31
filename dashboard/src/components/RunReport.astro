@@ -21,7 +21,7 @@ const reportQuery = `
       r.run_id,
       ANY_VALUE(r.event_date) as event_date,
       COUNT(*) as finishers,
-      COUNTIF(r.run_total = 1) as newcomers,
+      COUNTIF(r.run_total = 1 AND r.is_unknown_athlete = false) as newcomers,
       COUNTIF(r.was_genuine_pb = true) as pbs,
       COUNTIF(r.is_unknown_athlete = true) as unknowns,
       (SELECT COUNT(DISTINCT athlete_id) FROM \`${projectId}.${datasetId}.volunteers\` v WHERE v.run_id = r.run_id) as volunteers

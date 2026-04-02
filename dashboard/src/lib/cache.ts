@@ -31,9 +31,9 @@ export function getCached<T>(key: string): T | null {
  * Store value in cache with TTL.
  * @param key Cache key
  * @param data Data to cache
- * @param ttlMinutes Time-to-live in minutes (default 10)
+ * @param ttlMinutes Time-to-live in minutes (default 360 = 6 hours; data refreshes weekly so long TTL is safe)
  */
-export function setCached<T>(key: string, data: T, ttlMinutes = 10): void {
+export function setCached<T>(key: string, data: T, ttlMinutes = 360): void {
   cache.set(key, {
     data,
     expiresAt: Date.now() + ttlMinutes * 60 * 1000,

@@ -6,10 +6,11 @@ The frontend component of the Parkrun Data Dive. This is an **Astro SSR** applic
 
 - **SSR Mode:** The application runs in server mode (Node/Firebase) to keep BigQuery credentials and raw data off the client side.
 - **View-Based Data Layer:** All dashboard components query published BigQuery views (named `_NN_dashboard_*`) instead of embedding complex SQL. Views precompute aggregations, rankings, and transformations server-side. Components execute lightweight `SELECT *` queries via the `runQuery` utility, then format/filter results for display.
-- **SSR Result Caching:** BigQuery responses from expensive view queries are cached in-memory with a 10-minute TTL. This dramatically reduces query volume during traffic peaks:
+- **SSR Result Caching:** BigQuery responses from expensive view queries are cached in-memory with a 6-hour TTL. This dramatically reduces query volume during traffic peaks:
   - `RunReport.astro` caches latest run stats + weather data per run ID (key: `runReport_{run_id}`, `weather_{run_id}`)
   - `TopLists.astro` caches global top-20 arrays (key: `topLists_global`)
   - Queries bypass cache on miss and repopulate for subsequent requests
+  - Long TTL (6 hours) is safe because data only refreshes weekly on Monday
   - Cache is cleared on application restart or via weekly data sync workflows
 - **Global Styling:** All baseline resets and design tokens (colors/typography) are centralized in `Layout.astro` using `is:global`.
 

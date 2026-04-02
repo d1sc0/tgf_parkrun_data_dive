@@ -50,11 +50,12 @@ When changing behavior, update docs in the same change set when relevant:
 
 ## 5. SSR Result Caching
 
-Dashboard components (RunReport.astro, TopLists.astro) use in-memory caching (10-minute TTL) to reduce BigQuery query volume:
+Dashboard components (RunReport.astro, TopLists.astro) use in-memory caching (6-hour TTL) to reduce BigQuery query volume:
 
 - Cache is managed via `dashboard/src/lib/cache.ts` (getCached, setCached, clearCache, clearAllCache)
 - RunReport caches per run*id: `runReport*${run_id}` (latest run data), `weather_${run_id}` (weather data)
 - TopLists uses static key: `topLists_global` (global top-20 arrays)
+- Cache TTL is 6 hours (360 minutes) since data only refreshes weekly on Monday
 - Cache is cleared on application restart; no manual intervention required
 - Expected impact: 80-90% reduction in query volume during traffic peaks
 

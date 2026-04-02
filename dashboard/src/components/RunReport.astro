@@ -69,7 +69,7 @@ try {
   if (!data) {
     const results = await runQuery(reportQuery, { targetRunId });
     data = results[0];
-    setCached(cacheKey, data, 10); // Cache for 10 minutes
+    setCached(cacheKey, data, 360); // Cache for 6 hours
   }
 } catch (e) {
   console.error('Run Report Error:', e);
@@ -110,7 +110,7 @@ if (!isNaN(latestRunId)) {
           code: Number(weatherRow.weather_code),
           wind: Number(weatherRow.wind_mph),
         };
-        setCached(weatherCacheKey, weather, 10); // Cache for 10 minutes
+        setCached(weatherCacheKey, weather, 360); // Cache for 6 hours
       }
     } catch (e) {
       console.error('Weather query failed:', e);

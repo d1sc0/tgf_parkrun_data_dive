@@ -34,7 +34,7 @@ Purpose: practical non-sensitive reference for maintainers and automation agents
 - dashboard/src/lib/cache.ts
   - In-memory result caching utility with TTL support for SSR performance optimization.
   - Exports: getCached(key), setCached(key, data, ttlMinutes), clearCache(key), clearAllCache()
-  - Currently used by RunReport.astro and TopLists.astro to reduce BigQuery queries during traffic peaks (10-minute TTL).
+  - Currently used by RunReport.astro and TopLists.astro to reduce BigQuery queries during traffic peaks (6-hour TTL).
 - sql/bigquery/\*.sql
   - QA, summary, duplicate detection, and reporting views.
 

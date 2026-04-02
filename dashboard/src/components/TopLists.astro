@@ -27,7 +27,7 @@ try {
     rows = cachedRows;
   } else {
     rows = await runQuery(query);
-    setCached(cacheKey, rows, 10); // Cache for 10 minutes
+    setCached(cacheKey, rows, 360); // Cache for 6 hours
   }
 } catch (error) {
   console.error('Failed to fetch top lists:', error);

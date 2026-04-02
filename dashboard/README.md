@@ -5,7 +5,7 @@ The frontend component of the Parkrun Data Dive. This is an **Astro SSR** applic
 ## 🛠 Technical Implementation
 
 - **SSR Mode:** The application runs in server mode (Node/Firebase) to keep BigQuery credentials and raw data off the client side.
-- ** BigQuery SQL** queries are defined as string literals directly within the Astro components, referencing environment variables for project and dataset IDs. They are executed via a `runQuery` utility.
+- **View-Based Data Layer:** All dashboard components query published BigQuery views (named `_NN_dashboard_*`) instead of embedding complex SQL. Views precompute aggregations, rankings, and transformations server-side. Components execute lightweight `SELECT *` queries via the `runQuery` utility, then format/filter results for display.
 - **Global Styling:** All baseline resets and design tokens (colors/typography) are centralized in `Layout.astro` using `is:global`.
 
 ## 🚀 Key Features
@@ -25,13 +25,18 @@ The frontend component of the Parkrun Data Dive. This is an **Astro SSR** applic
 ## � Key Directories
 
 - `src/layouts/`: The `Layout.astro` component wraps all pages with a 1024px max-width container and global styles.
-- `src/components/`:
-  - `HeadlineStats.astro`: A "Smart Widget" that handles its own BigQuery data fetching and key normalization.
-  - `RunReport.astro`: Complex reporter component using BigQuery window functions for historical navigation.
-  - `VolunteerMilestones.astro`: Mobile-optimized tracker using a card-based layout on small screens.
-  - `HomeRunMap.astro`: Leaflet-based mapping component with `ResizeObserver` for layout stability.
-  - `Header.astro`: Contains the responsive navigation and animated hamburger-to-X SVG logic.
-- `src/lib/`: Backend utilities for BigQuery authentication (ADC compatible).
+- `src/components/`: Each dashboard component queries its corresponding published BigQuery view:
+  - `HeadlineStats.astro` → `_20_dashboard_headline_stats`: Aggregate parkrun statistics (events, finishers, distance, PBs).
+  - `RunReport.astro` → `_26_dashboard_run_report`: Comprehensive breakdown of the latest event including weather, trends, and nested detail arrays.
+  - `VolunteerMilestones.astro` → `_23_dashboard_volunteer_milestones`: Milestone progress tracker for volunteers approaching 10, 25, 50, 100, 250, 500 events.
+  - `Visitors Map / HomeRunMap.astro` → `_22_dashboard_visitor_stats`: Geographic visualization of where athletes travel from.
+  - `Records.astro` → `_21_dashboard_course_records`: Top 10 personal-best runners by category/gender.
+  - `AttendanceTracker.astro` → `_24_dashboard_attendance_tracker`: Timeline/comparison charts by gender and age group.
+  - `PerformanceTracker.astro` → `_25_dashboard_performance_tracker`: Race-time trends by date with gender/age filters.
+  - `TopLists.astro` → `_27_dashboard_top_lists`: Six independent top-20 leaderboards (athletes, volunteers, events, clubs).
+  - `VolunteerTracker.astro` → `_28_dashboard_volunteer_tracker`: Weekly volunteer-support timeline and role breakdowns.
+  - `Header.astro`: Responsive navigation with animated hamburger-to-X SVG logic.
+- `src/lib/`: Backend utilities including BigQuery authentication (ADC compatible) and `runQuery` helper.
 
 ## 🔐 Security & Privacy
 

@@ -5,14 +5,17 @@ A specialized ETL pipeline and mobile-first analytics dashboard for Parkrun even
 ## 🏗 Architecture
 
 - **ETL (Node.js/CommonJS):** Periodically fetches data from Parkrun and pushes to BigQuery.
-- **Dashboard (Astro/ESM):** A server-side rendered (SSR) frontend that queries BigQuery directly.
-- **Data Layer (BigQuery):** 26+ SQL views that act as a single source of truth for both the sync logic and the visualization.
+- **Dashboard (Astro/ESM):** A server-side rendered (SSR) frontend that queries BigQuery views directly.
+- **Data Layer (BigQuery):** 28 published SQL views that serve as a single source of truth:
+  - **Core views:** Row counts, athlete summaries, volunteer summaries, duplicate detection, and QA checks.
+  - **Dashboard views:** 9 optimized views (\_20–\_28) precompute aggregations, rankings, and transformations for each dashboard component. Components execute lightweight `SELECT *` queries and handle only display logic.
 
 ## 📱 Dashboard Features
 
 - **Privacy First:** Personally Identifiable Information (PII) like athlete names are never stored in the repository or as static assets. They are fetched from BigQuery at request time.
 - **Mobile Optimized:** Built with a "hamburger-first" navigation and card-based layouts for effective use at the finish line.
-- **Performance:** Zero-JS baseline using Astro's Islands architecture.
+- **Performance:** Zero-JS baseline using Astro's Islands architecture combined with pre-computed BigQuery views for fast server-side rendering.
+- **Separation of Concerns:** Views handle all complex aggregation/ranking/time logic; components focus on filtering, formatting, and user interactions.
 
 ## 🚀 Quick Start
 
@@ -54,14 +57,28 @@ Volunteer role fields:
 - task_ids: comma-separated list of all volunteer role IDs for the row
 - task_name: role name resolved using a three-step approach: (1) direct name fields on the volunteer API row (`TaskName`, `VolunteerRoleName`, `VolunteerRole` and lowercase variants); (2) date-scoped roster metadata (`/v1/events/{eventId}/rosters/{yyyymmdd}`) looked up by `athleteId` + `eventdate` for a direct per-person match; (3) `Role {id}` fallback if still unresolved
 
-## BigQuery tables
+## BigQuery Architecture
 
-Default table names:
+**Core Tables:**
 
 - Main results: results
 - Main volunteers: volunteers
 - Junior results: junior_results
 - Junior volunteers: junior_volunteers
+
+**Published Views (28 total):**
+
+- **Support views (01-19):** Row counts, athlete summaries, volunteer summaries, duplicate detection, run-time stats, daily QA checks.
+- **Dashboard views (20-28):** Optimized for Astro SSR components:
+  - \_20: HeadlineStats
+  - \_21: Course Records
+  - \_22: Visitor Stats (Home Run Map)
+  - \_23: Volunteer Milestones
+  - \_24: Attendance Tracker
+  - \_25: Performance Tracker
+  - \_26: Run Report
+  - \_27: Top Lists
+  - \_28: Volunteer Tracker
 
 ## Environment variables
 

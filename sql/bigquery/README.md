@@ -1,10 +1,11 @@
 BigQuery query pack
 
-This folder contains reusable SQL queries for row counts, athlete summaries, volunteer summaries, duplicate checks, and daily QA.
+This folder contains reusable SQL queries for row counts, athlete summaries, volunteer summaries, duplicate checks, and daily QA. It also includes 9 optimized dashboard views that power the Astro SSR components.
 
-Also included:
+**Dashboard Views (20-28):**
+Each Astro dashboard component queries a corresponding view to keep complex SQL logic server-side and component code focused on formatting/filtering:
 
-- 20_dashboard_headline_stats.sql: Aggregated metrics optimized for the HeadlineStats dashboard widget.
+- 20_dashboard_headline_stats.sql: Aggregated metrics for the HeadlineStats widget.
 - 21_dashboard_course_records.sql: Record tables for overall, gender, and age-category course records.
 - 22_dashboard_visitor_stats.sql: Home-run visitor summary used by the visitor map and related widgets.
 - 23_dashboard_volunteer_milestones.sql: Volunteer milestone tracker data with next-target calculations.
@@ -21,6 +22,30 @@ Publish all SQL files in this folder as BigQuery views:
 Optional environment override for view destination dataset:
 
 - BIGQUERY_VIEWS_DATASET_ID (defaults to BIGQUERY_DATASET_ID)
+
+## Architecture: View-Based Components
+
+Dashboard components follow a **separation of concerns** pattern:
+
+1. **Views handle business logic:** Complex aggregations, rankings, time transformations, and struct/array nesting are precomputed in SQL.
+2. **Components handle presentation:** Astro components query views with simple `SELECT *` statements, then format/filter results for the UI.
+3. **Benefits:**
+   - Views are reusable across multiple components and downstream tools.
+   - Component code stays lean and focused on rendering logic.
+   - SQL logic is version-controlled and can be tested independently.
+   - Changes to aggregation logic don't require component redeployment.
+
+Example (VolunteerMilestones component):
+
+```typescript
+// Simple query—all complexity is in the view
+const milestoneQuery = `
+  SELECT * FROM \`${projectId}.${viewsDatasetId}._23_dashboard_volunteer_milestones\`
+  ORDER BY last_vol_date DESC, remaining ASC
+`;
+const volunteers = await runQuery(milestoneQuery);
+// Component then sorts/filters/renders the results
+```
 
 Generated view names
 

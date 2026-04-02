@@ -1,6 +1,6 @@
 # tgf-parkrun-processor
 
-A specialized ETL pipeline and mobile-first analytics dashboard for Parkrun event data. This project extracts results and volunteer history from the Parkrun API, stores them in Google BigQuery, and visualizes insights using an Astro SSR dashboard.
+A specialized ETL pipeline and mobile-first analytics dashboard for TGF parkrun event data to provide key stats for the core team. This project extracts results and volunteer history from the Parkrun API and visualizes insights using an Astro SSR dashboard.
 
 ## 🏗 Architecture
 

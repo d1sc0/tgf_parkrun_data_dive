@@ -7,331 +7,35 @@ import { runQuery } from '../lib/bigquery';
  */
 
 const projectId = import.meta.env.GCP_PROJECT_ID;
+const viewsDatasetId =
+  import.meta.env.BIGQUERY_VIEWS_DATASET_ID ||
+  import.meta.env.BIGQUERY_DATASET_ID ||
+  'parkrun_data';
 
-const queries = {
-  athletes: `
-    WITH BaseStats AS (
-      SELECT
-        r.athlete_id,
-        ANY_VALUE(CONCAT(r.first_name, ' ', r.last_name)) as athlete_name,
-        COUNT(DISTINCT r.run_id) as total_runs,
-        ANY_VALUE(
-          CASE
-            WHEN r.age_category LIKE 'W%' OR r.age_category LIKE 'JW%' OR r.age_category LIKE 'SW%' OR r.age_category LIKE 'VW%' THEN 'Female'
-            WHEN r.age_category LIKE 'M%' OR r.age_category LIKE 'JM%' OR r.age_category LIKE 'SM%' OR r.age_category LIKE 'VM%' THEN 'Male'
-            ELSE 'Unknown'
-          END
-        ) as gender
-      FROM \`${projectId}.parkrun_data.results\` r
-      WHERE r.is_unknown_athlete = false
-      GROUP BY r.athlete_id
-    ),
-    VolStats AS (
-      SELECT 
-        athlete_id, 
-        COUNT(DISTINCT event_date) as vol_appearances
-      FROM \`${projectId}.parkrun_data.volunteers\`
-      GROUP BY athlete_id
-    ),
-    FastestStats AS (
-      SELECT
-        r.athlete_id,
-        r.finish_time,
-        CAST(r.event_date AS STRING) as event_date_str,
-        r.run_id,
-        ROW_NUMBER() OVER (PARTITION BY r.athlete_id ORDER BY
-          CASE
-            WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 3 THEN
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(2)] AS INT64)
-            WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 2 THEN
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64)
-            ELSE 999999
-          END ASC, r.event_date ASC
-        ) as rn
-      FROM \`${projectId}.parkrun_data.results\` r
-      WHERE r.is_unknown_athlete = false AND r.finish_time IS NOT NULL AND r.finish_time != ''
-    )
-    SELECT
-      a.athlete_name as label,
-      a.total_runs as value,
-      f.finish_time as fastest_time,
-      f.event_date_str as fastest_date,
-      f.run_id as fastest_run_id,
-      IFNULL(v.vol_appearances, 0) as vol_count
-    FROM BaseStats a
-    LEFT JOIN VolStats v ON a.athlete_id = v.athlete_id
-    LEFT JOIN FastestStats f ON a.athlete_id = f.athlete_id AND f.rn = 1
-    ORDER BY a.total_runs DESC
-    LIMIT 20`,
-  athletes_male: `
-    WITH BaseStats AS (
-      SELECT
-        r.athlete_id,
-        ANY_VALUE(CONCAT(r.first_name, ' ', r.last_name)) as athlete_name,
-        COUNT(DISTINCT r.run_id) as total_runs,
-        ANY_VALUE(
-          CASE
-            WHEN r.age_category LIKE 'W%' OR r.age_category LIKE 'JW%' OR r.age_category LIKE 'SW%' OR r.age_category LIKE 'VW%' THEN 'Female'
-            WHEN r.age_category LIKE 'M%' OR r.age_category LIKE 'JM%' OR r.age_category LIKE 'SM%' OR r.age_category LIKE 'VM%' THEN 'Male'
-            ELSE 'Unknown'
-          END
-        ) as gender
-      FROM \`${projectId}.parkrun_data.results\` r
-      WHERE r.is_unknown_athlete = false
-      GROUP BY r.athlete_id
-    ),
-    VolStats AS (
-      SELECT 
-        athlete_id, 
-        COUNT(DISTINCT event_date) as vol_appearances
-      FROM \`${projectId}.parkrun_data.volunteers\`
-      GROUP BY athlete_id
-    ),
-    FastestStats AS (
-      SELECT
-        r.athlete_id,
-        r.finish_time,
-        CAST(r.event_date AS STRING) as event_date_str,
-        r.run_id,
-        ROW_NUMBER() OVER (PARTITION BY r.athlete_id ORDER BY
-          CASE
-            WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 3 THEN
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(2)] AS INT64)
-            WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 2 THEN
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64)
-            ELSE 999999
-          END ASC, r.event_date ASC
-        ) as rn
-      FROM \`${projectId}.parkrun_data.results\` r
-      WHERE r.is_unknown_athlete = false AND r.finish_time IS NOT NULL AND r.finish_time != ''
-    )
-    SELECT
-      a.athlete_name as label,
-      a.total_runs as value,
-      f.finish_time as fastest_time,
-      f.event_date_str as fastest_date,
-      f.run_id as fastest_run_id,
-      IFNULL(v.vol_appearances, 0) as vol_count
-    FROM BaseStats a
-    LEFT JOIN VolStats v ON a.athlete_id = v.athlete_id
-    LEFT JOIN FastestStats f ON a.athlete_id = f.athlete_id AND f.rn = 1
-    WHERE a.gender = 'Male'
-    ORDER BY a.total_runs DESC
-    LIMIT 20`,
-  athletes_female: `
-    WITH BaseStats AS (
-      SELECT
-        r.athlete_id,
-        ANY_VALUE(CONCAT(r.first_name, ' ', r.last_name)) as athlete_name,
-        COUNT(DISTINCT r.run_id) as total_runs,
-        ANY_VALUE(
-          CASE
-            WHEN r.age_category LIKE 'W%' OR r.age_category LIKE 'JW%' OR r.age_category LIKE 'SW%' OR r.age_category LIKE 'VW%' THEN 'Female'
-            WHEN r.age_category LIKE 'M%' OR r.age_category LIKE 'JM%' OR r.age_category LIKE 'SM%' OR r.age_category LIKE 'VM%' THEN 'Male'
-            ELSE 'Unknown'
-          END
-        ) as gender
-      FROM \`${projectId}.parkrun_data.results\` r
-      WHERE r.is_unknown_athlete = false
-      GROUP BY r.athlete_id
-    ),
-    VolStats AS (
-      SELECT 
-        athlete_id, 
-        COUNT(DISTINCT event_date) as vol_appearances
-      FROM \`${projectId}.parkrun_data.volunteers\`
-      GROUP BY athlete_id
-    ),
-    FastestStats AS (
-      SELECT
-        r.athlete_id,
-        r.finish_time,
-        CAST(r.event_date AS STRING) as event_date_str,
-        r.run_id,
-        ROW_NUMBER() OVER (PARTITION BY r.athlete_id ORDER BY
-          CASE
-            WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 3 THEN
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(2)] AS INT64)
-            WHEN ARRAY_LENGTH(SPLIT(r.finish_time, ':')) = 2 THEN
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-              CAST(SPLIT(r.finish_time, ':')[OFFSET(1)] AS INT64)
-            ELSE 999999
-          END ASC, r.event_date ASC
-        ) as rn
-      FROM \`${projectId}.parkrun_data.results\` r
-      WHERE r.is_unknown_athlete = false AND r.finish_time IS NOT NULL AND r.finish_time != ''
-    )
-    SELECT
-      a.athlete_name as label,
-      a.total_runs as value,
-      f.finish_time as fastest_time,
-      f.event_date_str as fastest_date,
-      f.run_id as fastest_run_id,
-      IFNULL(v.vol_appearances, 0) as vol_count
-    FROM BaseStats a
-    LEFT JOIN VolStats v ON a.athlete_id = v.athlete_id
-    LEFT JOIN FastestStats f ON a.athlete_id = f.athlete_id AND f.rn = 1
-    WHERE a.gender = 'Female'
-    ORDER BY a.total_runs DESC
-    LIMIT 20`,
-  volunteers: `
-    WITH VolBase AS (
-      SELECT
-        athlete_id,
-        ANY_VALUE(CONCAT(first_name, ' ', last_name)) as vol_name,
-        COUNT(DISTINCT event_date) as appearances
-      FROM \`${projectId}.parkrun_data.volunteers\`
-      WHERE athlete_id != 2214
-      GROUP BY athlete_id
-    ),
-    RunStats AS (
-      SELECT
-        athlete_id,
-        NULLIF(COUNT(DISTINCT run_id), 0) as total_runs,
-        MIN(
-          CASE
-            WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
-              CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
-            WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
-              CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-              CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
-            ELSE NULL
-          END
-        ) as fastest_s
-      FROM \`${projectId}.parkrun_data.results\`
-      WHERE is_unknown_athlete = false
-      GROUP BY athlete_id
-    )
-    SELECT 
-      v.vol_name as label, 
-      v.appearances as value, 
-      r.total_runs as run_count,
-      FORMAT('%02d:%02d', CAST(DIV(r.fastest_s, 60) AS INT64), CAST(MOD(r.fastest_s, 60) AS INT64)) as fastest_time
-    FROM VolBase v
-    LEFT JOIN RunStats r ON v.athlete_id = r.athlete_id
-    ORDER BY value DESC LIMIT 20`,
-  events: `
-    WITH event_seconds AS (
-      SELECT
-        run_id,
-        event_date,
-        athlete_id,
-        first_name,
-        last_name,
-        finish_time,
-        CASE
-          WHEN age_category LIKE 'W%' OR age_category LIKE 'JW%' OR age_category LIKE 'SW%' OR age_category LIKE 'VW%' THEN 'Female'
-          WHEN age_category LIKE 'M%' OR age_category LIKE 'JM%' OR age_category LIKE 'SM%' OR age_category LIKE 'VM%' THEN 'Male'
-          ELSE 'Unknown'
-        END as gender,
-        CASE
-          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
-            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-            CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
-          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
-            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
-          ELSE NULL
-        END AS seconds
-      FROM \`${projectId}.parkrun_data.results\`
-      WHERE finish_time IS NOT NULL AND finish_time != ''
-    ),
-    event_aggs AS (
-      SELECT
-        run_id,
-        event_date,
-        COUNT(*) as value,
-        MIN(seconds) as fastest_s,
-        AVG(seconds) as mean_s,
-        MAX(seconds) as slowest_s
-      FROM event_seconds
-      GROUP BY run_id, event_date
-    )
-    SELECT
-      CAST(ea.event_date AS STRING) as label,
-      ea.value,
-      ea.run_id,
-      FORMAT('%02d:%02d', CAST(DIV(COALESCE(ea.fastest_s, 0), 60) AS INT64), CAST(MOD(COALESCE(ea.fastest_s, 0), 60) AS INT64)) as fastest_time,
-      FORMAT('%02d:%02d', CAST(DIV(CAST(ROUND(COALESCE(ea.mean_s, 0)) AS INT64), 60) AS INT64), CAST(MOD(CAST(ROUND(COALESCE(ea.mean_s, 0)) AS INT64), 60) AS INT64)) as mean_time,
-      FORMAT('%02d:%02d', CAST(DIV(COALESCE(ea.slowest_s, 0), 60) AS INT64), CAST(MOD(COALESCE(ea.slowest_s, 0), 60) AS INT64)) as slowest_time
-    FROM event_aggs ea
-    ORDER BY ea.value DESC
-    LIMIT 20`,
-  clubs: `
-    WITH club_base AS (
-      SELECT 
-        club_name as label, 
-        COUNT(*) as value
-      FROM \`${projectId}.parkrun_data.results\` 
-      WHERE club_name IS NOT NULL AND club_name != "" AND LOWER(club_name) != 'unattached'
-      GROUP BY 1
-    ),
-    club_finishers AS (
-      SELECT
-        club_name,
-        CONCAT(first_name, ' ', last_name) as athlete_name,
-        finish_time,
-        CASE
-          WHEN age_category LIKE 'W%' OR age_category LIKE 'JW%' OR age_category LIKE 'SW%' OR age_category LIKE 'VW%' THEN 'Female'
-          WHEN age_category LIKE 'M%' OR age_category LIKE 'JM%' OR age_category LIKE 'SM%' OR age_category LIKE 'VM%' THEN 'Male'
-          ELSE 'Unknown'
-        END as gender,
-        CASE
-          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
-            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-            CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
-          WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
-            CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-            CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
-          ELSE NULL
-        END AS seconds
-      FROM \`${projectId}.parkrun_data.results\`
-      WHERE club_name IS NOT NULL AND club_name != "" AND LOWER(club_name) != 'unattached'
-        AND finish_time IS NOT NULL AND finish_time != ''
-    ),
-    RankedFinishers AS (
-      SELECT
-        club_name,
-        gender,
-        athlete_name,
-        finish_time,
-        ROW_NUMBER() OVER (PARTITION BY club_name, gender ORDER BY seconds ASC) as rn
-      FROM club_finishers
-      WHERE gender IN ('Male', 'Female')
-    )
-    SELECT
-      cb.label,
-      cb.value,
-      fm.athlete_name as fastest_male_name,
-      fm.finish_time as fastest_male_time,
-      ff.athlete_name as fastest_female_name,
-      ff.finish_time as fastest_female_time
-    FROM club_base cb
-    LEFT JOIN RankedFinishers fm ON cb.label = fm.club_name AND fm.gender = 'Male' AND fm.rn = 1
-    LEFT JOIN RankedFinishers ff ON cb.label = ff.club_name AND ff.gender = 'Female' AND ff.rn = 1
-    ORDER BY cb.value DESC
-    LIMIT 20`,
-};
+const query = `
+  SELECT *
+  FROM \`${projectId}.${viewsDatasetId}._27_dashboard_top_lists\`
+`;
 
-const queryKeys = Object.keys(queries);
-const resultsArray = await Promise.all(
-  queryKeys.map(k => runQuery(queries[k])),
-);
+let rows: any[] = [];
+try {
+  rows = await runQuery(query);
+} catch (error) {
+  console.error('Failed to fetch top lists:', error);
+}
+
+const queryKeys = [
+  'athletes',
+  'athletes_male',
+  'athletes_female',
+  'volunteers',
+  'events',
+  'clubs',
+];
+const topLists = rows[0] || {};
 const datasets = queryKeys.reduce(
-  (acc, key, i) => {
-    acc[key] = resultsArray[i];
+  (acc, key) => {
+    acc[key] = topLists[key] || [];
     return acc;
   },
   {} as Record<string, any[]>,

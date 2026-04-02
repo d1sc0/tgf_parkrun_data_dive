@@ -49,6 +49,16 @@ const volunteersSchema = [
   { name: 'last_name', type: 'STRING', mode: 'NULLABLE' },
 ];
 
+const weatherSchema = [
+  { name: 'run_id', type: 'INTEGER', mode: 'REQUIRED' },
+  { name: 'event_date', type: 'DATE', mode: 'REQUIRED' },
+  { name: 'temp_c', type: 'FLOAT64', mode: 'NULLABLE' },
+  { name: 'weather_code', type: 'INTEGER', mode: 'NULLABLE' },
+  { name: 'wind_mph', type: 'FLOAT64', mode: 'NULLABLE' },
+  { name: 'fetched_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+  { name: 'source', type: 'STRING', mode: 'REQUIRED' },
+];
+
 const tableConfigs = [
   [process.env.BIGQUERY_RESULTS_TABLE || 'results', resultsSchema],
   [process.env.BIGQUERY_VOLUNTEERS_TABLE || 'volunteers', volunteersSchema],
@@ -60,6 +70,7 @@ const tableConfigs = [
     process.env.BIGQUERY_JUNIOR_VOLUNTEERS_TABLE || 'junior_volunteers',
     volunteersSchema,
   ],
+  [process.env.BIGQUERY_WEATHER_TABLE || 'event_weather', weatherSchema],
 ];
 
 async function main() {

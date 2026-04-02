@@ -11,6 +11,8 @@
     "setup:bq": "node utilities/create-bigquery-tables.js",
     "publish:views": "node utilities/publish-bigquery-views.js",
     "sync:coordinates": "node utilities/sync-event-coordinates.js",
+    "sync:weather": "node utilities/sync-weather-history.js",
+    "sync:weather:latest": "node utilities/sync-weather-history.js --latest",
     "backfill": "node utilities/backfill-missing.js",
     "compare:bq": "node utilities/compare-bq-vs-eventhistory.js --out utilities/compare-bq-output.json --text-out utilities/compare-bq-report.txt",
     "test": "echo \"Error: no test specified\" && exit 1"

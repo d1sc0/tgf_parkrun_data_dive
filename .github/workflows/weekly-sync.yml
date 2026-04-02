@@ -209,3 +209,6 @@ jobs:
 
       - name: Run parkrun sync (sync_parkrun.js via npm run dev)
         run: npm run dev
+
+      - name: Sync latest weather snapshot
+        run: npm run sync:weather:latest

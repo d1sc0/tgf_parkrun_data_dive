@@ -11,7 +11,7 @@ The frontend component of the Parkrun Data Dive. This is an **Astro SSR** applic
 ## 🚀 Key Features
 
 - **Latest Run Report:** A comprehensive breakdown of the most recent event including finish time distribution (ApexCharts), first finishers, and top age-grade performances.
-  - **Weather Context:** Integrates historical weather data (temp, wind, conditions) from the Open-Meteo API at the start time of each event.
+  - **Weather Context:** Reads cached historical weather data (temp, wind, conditions) from BigQuery `event_weather` (synced via utility script).
   - **Trend Analysis:** Automated comparison of finishers, volunteers, and PBs against the previous event.
   - **Archive Navigation:** Full pagination support to view reports for any past event.
 - **Volunteer Milestone Tracker:** Identification of volunteers approaching major milestones (10, 25, 50, 100, 250, 500).

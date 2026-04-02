@@ -6,6 +6,9 @@ const viewsDatasetId =
   import.meta.env.BIGQUERY_VIEWS_DATASET_ID ||
   import.meta.env.BIGQUERY_DATASET_ID ||
   'parkrun_data';
+const dataDatasetId = import.meta.env.BIGQUERY_DATASET_ID || 'parkrun_data';
+const weatherTableId =
+  import.meta.env.BIGQUERY_WEATHER_TABLE || 'event_weather';
 
 let targetRunId = parseInt(Astro.url.searchParams.get('run') || '', 10);
 if (isNaN(targetRunId)) targetRunId = -1;
@@ -72,29 +75,33 @@ const dist = data?.distribution || [];
 const topAgeGrades = data?.top_age_grades || [];
 const visitors = data?.visitors || [];
 
-// Weather Fetching Logic (Open-Meteo)
+// Weather is sourced from BigQuery to avoid blocking SSR with external API calls.
 let weather: { temp: number; code: number; wind: number } | null = null;
-const wDate =
-  latest.event_date instanceof Date
-    ? latest.event_date
-    : new Date(latest.event_date?.value || latest.event_date);
+const latestRunId = Number(latest.run_id?.value || latest.run_id);
 
-if (!isNaN(wDate.getTime())) {
-  const dateStr = wDate.toISOString().split('T')[0];
+if (!isNaN(latestRunId)) {
+  const weatherQuery = `
+    SELECT
+      temp_c,
+      weather_code,
+      wind_mph
+    FROM \`${projectId}.${dataDatasetId}.${weatherTableId}\`
+    WHERE run_id = @runId
+    LIMIT 1
+  `;
+
   try {
-    const wRes = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=50.7123&longitude=-2.4651&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,weather_code,wind_speed_10m&wind_speed_unit=mph&timezone=GMT`,
-    );
-    const wData = await wRes.json();
-    if (wData.hourly && wData.hourly.temperature_2m) {
+    const weatherRows = await runQuery(weatherQuery, { runId: latestRunId });
+    const weatherRow = weatherRows?.[0];
+    if (weatherRow) {
       weather = {
-        temp: wData.hourly.temperature_2m[9], // 09:00 GMT
-        code: wData.hourly.weather_code[9],
-        wind: wData.hourly.wind_speed_10m[9],
+        temp: Number(weatherRow.temp_c),
+        code: Number(weatherRow.weather_code),
+        wind: Number(weatherRow.wind_mph),
       };
     }
   } catch (e) {
-    console.error('Weather fetch failed:', e);
+    console.error('Weather query failed:', e);
   }
 }
 

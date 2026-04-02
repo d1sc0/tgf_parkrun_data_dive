@@ -17,6 +17,8 @@ Repository-level guidance for AI coding agents working in this project.
   - `npm run setup:bq`
   - `npm run publish:views`
   - `npm run sync:coordinates`
+  - `npm run sync:weather`
+  - `npm run sync:weather:latest`
 - For scripted/agent terminal runs, prefer:
   - `DISABLE_AUTO_UPDATE=true <command>`
 

@@ -28,6 +28,9 @@ Purpose: practical non-sensitive reference for maintainers and automation agents
 - utilities/sync-event-coordinates.js
   - Syncs Parkrun coordinate feed into `parkrun_data.event_coordinates`.
   - Uses BigQuery load job with `WRITE_TRUNCATE` for safe repeat runs.
+- utilities/sync-weather-history.js
+  - Syncs weather snapshots into `parkrun_data.event_weather` using Open-Meteo archive data.
+  - Supports backfill mode (`npm run sync:weather`) and latest-only mode (`npm run sync:weather:latest`).
 - sql/bigquery/\*.sql
   - QA, summary, duplicate detection, and reporting views.
 
@@ -47,6 +50,7 @@ Core tables:
 Supporting table:
 
 - event_coordinates
+- event_weather
 
 Common key fields:
 
@@ -154,6 +158,8 @@ Text report sections:
 - npm run setup:bq
 - npm run publish:views
 - npm run sync:coordinates
+- npm run sync:weather
+- npm run sync:weather:latest
 - npm run dev
 - npm run backfill -- --input missing.json
 - npm run compare:bq
@@ -166,6 +172,7 @@ Text report sections:
   - `npm run setup:bq`
   - `npm run sync:coordinates`
   - `npm run dev`
+  - `npm run sync:weather:latest`
 
 ## Ongoing Maintenance Notes
 

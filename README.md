@@ -94,6 +94,7 @@ Core config:
 - BIGQUERY_VOLUNTEERS_TABLE
 - BIGQUERY_JUNIOR_RESULTS_TABLE
 - BIGQUERY_JUNIOR_VOLUNTEERS_TABLE
+- BIGQUERY_WEATHER_TABLE
 - PARKRUN_EVENT_ID
 - PARKRUN_USERNAME
 - PARKRUN_PASSWORD
@@ -110,6 +111,12 @@ Runtime flags:
 - SCRAPE_ALL_EVENTS
 - SCRAPE_MAX_EVENTS
 - RUN_FETCH_DELAY_MS
+
+Weather cache config:
+
+- WEATHER_LATITUDE
+- WEATHER_LONGITUDE
+- WEATHER_HOUR_UTC
 
 ## Runtime behavior and flags
 
@@ -154,6 +161,10 @@ npm run setup:bq
 Sync event coordinates used by the visitor map:
 
 npm run sync:coordinates
+
+Backfill weather cache used by Run Report:
+
+npm run sync:weather
 
 Run sync:
 
@@ -299,6 +310,8 @@ Current behavior in workflow:
   - FETCH_LATEST_ONLY=true
   - SCRAPE_MAX_EVENTS=1
   - RUN_JUNIOR=false
+- Syncs weather for latest run after data sync:
+  - npm run sync:weather:latest
 
 ### Required GitHub repository secrets
 

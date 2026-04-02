@@ -2,112 +2,57 @@
 import { runQuery } from '../lib/bigquery';
 
 const projectId = import.meta.env.GCP_PROJECT_ID;
-const datasetId = import.meta.env.BIGQUERY_DATASET_ID || 'parkrun_data';
+const viewsDatasetId =
+  import.meta.env.BIGQUERY_VIEWS_DATASET_ID ||
+  import.meta.env.BIGQUERY_DATASET_ID ||
+  'parkrun_data';
 
-// 1. Fetch all unique age categories for the filter dropdown
-const categoriesQuery = `
-  SELECT DISTINCT age_category
-  FROM \`${projectId}.${datasetId}.results\`
-  WHERE age_category IS NOT NULL
-  ORDER BY age_category
+const recordsQuery = `
+  SELECT
+    record_scope,
+    scope_value,
+    athlete_id,
+    first_name,
+    last_name,
+    pb_time,
+    pb_seconds,
+    best_grading,
+    pb_date,
+    run_id,
+    age_category,
+    gender,
+    rank
+  FROM \`${projectId}.${viewsDatasetId}._21_dashboard_course_records\`
+  ORDER BY record_scope, scope_value, rank
 `;
 
-const categoriesRows = await runQuery(categoriesQuery);
-const categories = categoriesRows?.map(r => r.age_category) || [];
+let allRecords: any[] = [];
+try {
+  allRecords = await runQuery(recordsQuery);
+} catch (error) {
+  console.error('Failed to fetch course records:', error);
+}
+
+const categories = [
+  ...new Set(
+    allRecords
+      .filter(row => row.record_scope === 'category' && row.scope_value)
+      .map(row => row.scope_value),
+  ),
+].sort();
 
 // 2. Get the selected category from the URL, default to the first one available
 const selectedCategory =
   Astro.url.searchParams.get('category') ||
   (categories.length > 0 ? categories[0] : '');
 
-// 3. Base SQL logic for identifying Personal Bests (PBs)
-// This CTE calculates the fastest time for every athlete ever recorded
-const pbSecondsLogic = `
-  CASE
-    WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 3 THEN
-      CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 3600 +
-      CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64) * 60 +
-      CAST(SPLIT(finish_time, ':')[OFFSET(2)] AS INT64)
-    WHEN ARRAY_LENGTH(SPLIT(finish_time, ':')) = 2 THEN
-      CAST(SPLIT(finish_time, ':')[OFFSET(0)] AS INT64) * 60 +
-      CAST(SPLIT(finish_time, ':')[OFFSET(1)] AS INT64)
-    ELSE 999999
-  END
-`;
-
-const basePbCte = `
-    SELECT
-      athlete_id,
-      first_name,
-      last_name,
-      finish_time as pb_time,
-      ${pbSecondsLogic} as pb_seconds,
-      age_grading as best_grading,
-      event_date as pb_date,
-      run_id,
-      age_category,
-      ROW_NUMBER() OVER (PARTITION BY athlete_id ORDER BY 
-        ${pbSecondsLogic} ASC, event_date ASC
-      ) as pb_rn
-    FROM \`${projectId}.${datasetId}.results\`
-    WHERE is_unknown_athlete = false
-      AND finish_time IS NOT NULL AND finish_time != ''
-`;
-
-// 4. Define specific queries for each table
-const overallFastestQuery = `
-  WITH AthletePBs AS (${basePbCte})
-  SELECT
-    *,
-    ROW_NUMBER() OVER (ORDER BY pb_seconds ASC) as rank
-  FROM AthletePBs
-  WHERE pb_rn = 1
-  ORDER BY rank ASC
-  LIMIT 10
-`;
-
-const maleFastestQuery = `
-  WITH AthletePBs AS (${basePbCte})
-  SELECT
-    *,
-    ROW_NUMBER() OVER (ORDER BY pb_seconds ASC) as rank
-  FROM AthletePBs
-  WHERE pb_rn = 1 
-    AND (age_category LIKE 'M%' OR age_category LIKE 'JM%' OR age_category LIKE 'SM%' OR age_category LIKE 'VM%')
-  ORDER BY rank ASC
-  LIMIT 10
-`;
-
-const femaleFastestQuery = `
-  WITH AthletePBs AS (${basePbCte})
-  SELECT
-    *,
-    ROW_NUMBER() OVER (ORDER BY pb_seconds ASC) as rank
-  FROM AthletePBs
-  WHERE pb_rn = 1 
-    AND (age_category LIKE 'W%' OR age_category LIKE 'JW%' OR age_category LIKE 'SW%' OR age_category LIKE 'VW%')
-  ORDER BY rank ASC
-  LIMIT 10
-`;
-
-const categoryFastestQuery = `
-  WITH AthletePBs AS (${basePbCte})
-  SELECT
-    *,
-    ROW_NUMBER() OVER (ORDER BY pb_seconds ASC) as rank
-  FROM AthletePBs
-  WHERE pb_rn = 1 AND age_category = @category
-  ORDER BY rank ASC
-  LIMIT 10
-`;
-
-const [overallRecords, maleRecords, femaleRecords, categoryRecords] =
-  await Promise.all([
-    runQuery(overallFastestQuery),
-    runQuery(maleFastestQuery),
-    runQuery(femaleFastestQuery),
-    runQuery(categoryFastestQuery, { category: selectedCategory }),
-  ]);
+const overallRecords = allRecords.filter(row => row.record_scope === 'overall');
+const maleRecords = allRecords.filter(row => row.record_scope === 'male');
+const femaleRecords = allRecords.filter(row => row.record_scope === 'female');
+const categoryRecords = allRecords.filter(
+  row =>
+    row.record_scope === 'category' && row.scope_value === selectedCategory,
+);
 
 const sections = [
   { id: 'overall', title: 'Top 10 Overall Fastest', data: overallRecords },

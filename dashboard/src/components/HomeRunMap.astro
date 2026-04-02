@@ -22,48 +22,28 @@ const viewsDatasetId =
 
 const user = (Astro.locals as { user?: unknown }).user;
 
-// 1. Fetch home run stats from BigQuery
+// Fetch home run stats from BigQuery (includes cached coordinates if available)
 const bqQuery = `
   SELECT
     home_run_name,
-    athlete_count
+    athlete_count,
+    latitude,
+    longitude
   FROM \`${projectId}.${viewsDatasetId}._22_dashboard_visitor_stats\`
+  WHERE latitude IS NOT NULL
+    AND longitude IS NOT NULL
   ORDER BY athlete_count DESC
 `;
 
 let mapData: MapPoint[] = [];
 try {
-  // Fetch BigQuery stats and Parkrun event coordinates in parallel
-  const [homeRunStats, eventsResponse] = await Promise.all([
-    runQuery(bqQuery),
-    fetch('https://images.parkrun.com/events.json'),
-  ]);
-
-  const eventsData = await eventsResponse.json();
-  const allEvents = eventsData.events.features;
-
-  // Match BigQuery home run names to coordinates in events.json
-  mapData = (homeRunStats || [])
-    .map(stat => {
-      const eventMatch = allEvents.find(
-        (e: any) =>
-          e.properties.eventname.toLowerCase() ===
-            stat.home_run_name.toLowerCase() ||
-          e.properties.EventLongName.toLowerCase() ===
-            stat.home_run_name.toLowerCase(),
-      );
-
-      if (eventMatch) {
-        return {
-          name: stat.home_run_name,
-          count: stat.athlete_count,
-          lat: eventMatch.geometry.coordinates[1],
-          lng: eventMatch.geometry.coordinates[0],
-        };
-      }
-      return null;
-    })
-    .filter((point): point is MapPoint => point !== null);
+  const homeRunStats = await runQuery(bqQuery);
+  mapData = (homeRunStats || []).map(stat => ({
+    name: stat.home_run_name,
+    count: stat.athlete_count,
+    lat: stat.latitude,
+    lng: stat.longitude,
+  }));
 } catch (error) {
   console.error('Failed to fetch map data:', error);
 }

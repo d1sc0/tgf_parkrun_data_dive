@@ -10,6 +10,7 @@
     "dashboard:build": "npm --prefix dashboard run build",
     "setup:bq": "node utilities/create-bigquery-tables.js",
     "publish:views": "node utilities/publish-bigquery-views.js",
+    "sync:coordinates": "node utilities/sync-event-coordinates.js",
     "backfill": "node utilities/backfill-missing.js",
     "compare:bq": "node utilities/compare-bq-vs-eventhistory.js --out utilities/compare-bq-output.json --text-out utilities/compare-bq-report.txt",
     "test": "echo \"Error: no test specified\" && exit 1"

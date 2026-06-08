@@ -12,6 +12,7 @@ jobs:
     timeout-minutes: 30
 
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       GOOGLE_CREDENTIALS_PATH: ./service-account-key.json
 

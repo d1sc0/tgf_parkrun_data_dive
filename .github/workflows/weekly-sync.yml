@@ -3,7 +3,7 @@ name: Weekly Parkrun Sync
 on:
   schedule:
     # Every Monday at 05:00 UTC
-    - cron: '0 5 * * 1'
+    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 jobs:

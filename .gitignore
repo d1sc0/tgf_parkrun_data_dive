@@ -28,6 +28,8 @@ pnpm-debug.log*
 .tmp_parkrun_pkg/
 parkrun.js-*.tgz
 .firebase/
+.parkrun-token-cache.json
+*token-cache*.json
 
 # Coverage / reports
 coverage/

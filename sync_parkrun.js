@@ -4,45 +4,140 @@ const axios = require('axios');
 const qs = require('querystring');
 const { BigQuery } = require('@google-cloud/bigquery');
 const path = require('path');
+const fs = require('fs');
 
-// ─── Parkrun API constants (from parkrun.js src/constants.ts) ─────────────────
+// ─── Parkrun API constants ────────────────────────────────────────────────────
 const PARKRUN_API_BASE = 'https://api.parkrun.com';
 const PARKRUN_CLIENT_ID = process.env.PARKRUN_CLIENT_ID;
 const PARKRUN_CLIENT_SECRET = process.env.PARKRUN_CLIENT_SECRET;
-const PARKRUN_USER_AGENT = 'parkrun/1.2.7 CFNetwork/1121.2.2 Darwin/19.3.0';
-const PARKRUN_VERSION = '2.0.1';
+const PARKRUN_USER_AGENT =
+  process.env.PARKRUN_USER_AGENT ||
+  'parkrun/2.2.0 CFNetwork/1498.700.2 Darwin/23.6.0';
+const TOKEN_CACHE_FILE = path.resolve(__dirname, '.parkrun-token-cache.json');
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ─── Token Cache Helpers ──────────────────────────────────────────────────────
+function loadTokenCache() {
+  try {
+    if (fs.existsSync(TOKEN_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, 'utf8'));
+      if (typeof data === 'object' && data !== null) return data;
+    }
+  } catch (_) {}
+  return {};
+}
+
+function saveTokenCache(cache) {
+  try {
+    fs.writeFileSync(TOKEN_CACHE_FILE, JSON.stringify(cache, null, 2), {
+      mode: 0o600,
+    });
+  } catch (err) {
+    console.warn(`  Warning: could not write token cache: ${err.message}`);
+  }
+}
+
+function getCachedToken(username) {
+  const cache = loadTokenCache();
+  const entry = cache[username];
+  if (!entry || !entry.access_token || !entry.expires_at) return null;
+  // Consider token valid if it has at least 2 minutes (120s) remaining
+  if (entry.expires_at > Date.now() + 120000) {
+    const minsLeft = Math.max(
+      1,
+      Math.round((entry.expires_at - Date.now()) / 60000),
+    );
+    console.log(
+      `  Using valid cached Parkrun access token (expires in ~${minsLeft}m).`,
+    );
+    return entry.access_token;
+  }
+  return null;
+}
+
+function setCachedToken(username, tokenData) {
+  const cache = loadTokenCache();
+  const expiresInSec = tokenData.expires_in
+    ? parseInt(tokenData.expires_in, 10)
+    : 3600;
+  cache[username] = {
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token || null,
+    expires_at: Date.now() + expiresInSec * 1000,
+  };
+  saveTokenCache(cache);
+}
+
+function clearCachedToken(username) {
+  const cache = loadTokenCache();
+  if (cache[username]) {
+    delete cache[username];
+    saveTokenCache(cache);
+  }
+}
 
 // ─── Low-level Parkrun API client ─────────────────────────────────────────────
 
 /**
  * Authenticate with the Parkrun API and return an access token.
+ * Uses local file cache (.parkrun-token-cache.json) to avoid repeated logins.
  */
-async function parkrunAuth(username, password) {
+async function parkrunAuth(username, password, { forceRefresh = false } = {}) {
+  const cleanUser = username.trim();
+  const cleanPass = password.trim();
+
+  if (!forceRefresh) {
+    const cached = getCachedToken(cleanUser);
+    if (cached) return cached;
+  }
+
   const body = qs.stringify({
-    username,
-    password,
+    username: cleanUser,
+    password: cleanPass,
     scope: 'app',
     grant_type: 'password',
   });
 
-  const maxAttempts = 4;
+  const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const res = await axios.post(`${PARKRUN_API_BASE}/user_auth.php`, body, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': PARKRUN_USER_AGENT,
-          'X-Powered-By': `parkrun.js/${PARKRUN_VERSION} (https://parkrun.js.org/)`,
+          Accept: 'application/json',
+          'Accept-Language': 'en-GB,en;q=0.9',
         },
         auth: { username: PARKRUN_CLIENT_ID, password: PARKRUN_CLIENT_SECRET },
+        timeout: 30000,
       });
 
       if (!res.data || !res.data.access_token) {
         throw new Error('Authentication failed: no access_token in response');
       }
+
+      setCachedToken(cleanUser, res.data);
       return res.data.access_token;
     } catch (err) {
       const status = err?.response?.status;
+      const isLast = attempt === maxAttempts;
+
+      if (status === 403) {
+        if (!isLast) {
+          console.warn(
+            `  Parkrun auth returned HTTP 403 (WAF cooldown). Waiting 100s before retrying (attempt ${attempt}/${maxAttempts})...`,
+          );
+          await sleep(100000);
+          continue;
+        }
+        throw new Error(
+          'Parkrun auth returned HTTP 403 after retry. Most common causes are invalid credentials or Cloudflare IP rate-limit.',
+        );
+      }
+
       const retriable =
         status === 429 ||
         status === 500 ||
@@ -55,14 +150,8 @@ async function parkrunAuth(username, password) {
         console.warn(
           `  Auth attempt ${attempt}/${maxAttempts} failed with HTTP ${status}. Retrying in ${Math.round(waitMs / 1000)}s...`,
         );
-        await new Promise(resolve => setTimeout(resolve, waitMs));
+        await sleep(waitMs);
         continue;
-      }
-
-      if (status === 403) {
-        throw new Error(
-          'Parkrun auth returned HTTP 403. Most common causes are invalid credentials/secret formatting or source IP blocking (common on shared CI runners).',
-        );
       }
 
       throw err;
@@ -73,28 +162,84 @@ async function parkrunAuth(username, password) {
 /**
  * Build an authenticated axios instance for the Parkrun API.
  */
-function makeAuthedClient(accessToken) {
-  return axios.create({
+function makeAuthedClient(accessToken, username) {
+  const client = axios.create({
     baseURL: PARKRUN_API_BASE,
     headers: {
       'User-Agent': PARKRUN_USER_AGENT,
-      'X-Powered-By': `parkrun.js/${PARKRUN_VERSION} (https://parkrun.js.org/)`,
+      Accept: 'application/json',
+      'Accept-Language': 'en-GB,en;q=0.9',
     },
     params: {
       access_token: accessToken,
       scope: 'app',
       expandedDetails: true,
     },
+    timeout: 30000,
   });
+  client._parkrunUsername = username;
+  return client;
+}
+
+/**
+ * Robust GET wrapper with 403 cooldown (100s) and transient retries.
+ */
+async function apiGet(client, url, config = {}, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await client.get(url, config);
+    } catch (err) {
+      const status = err?.response?.status;
+      const isLast = attempt === maxAttempts;
+
+      if (status === 401) {
+        if (client._parkrunUsername) {
+          clearCachedToken(client._parkrunUsername);
+        }
+        throw err;
+      }
+
+      if (status === 403) {
+        if (client._parkrunUsername) {
+          clearCachedToken(client._parkrunUsername);
+        }
+        if (!isLast) {
+          console.warn(
+            `  HTTP 403 on ${url} (WAF cooldown). Waiting 100s before retry (attempt ${attempt}/${maxAttempts})...`,
+          );
+          await sleep(100000);
+          continue;
+        }
+      }
+
+      const retriable =
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504;
+
+      if (retriable && !isLast) {
+        const waitMs = attempt * 3000;
+        console.warn(
+          `  HTTP ${status} on ${url}. Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt}/${maxAttempts})...`,
+        );
+        await sleep(waitMs);
+        continue;
+      }
+
+      throw err;
+    }
+  }
 }
 
 /**
  * Paginate a Parkrun API endpoint that uses Content-Range / offset pagination.
- * Returns the full combined array of data items.
+ * Fetches pages sequentially with polite inter-page pacing to prevent WAF bursts.
  */
 async function multiGet(client, url, extraParams, dataKey, rangeKey) {
   // First request to discover totals and get the first page of data
-  const firstRes = await client.get(url, {
+  const firstRes = await apiGet(client, url, {
     params: { ...extraParams, limit: 100, offset: 0 },
   });
   const range = firstRes.data['Content-Range']?.[rangeKey]?.[0];
@@ -112,30 +257,22 @@ async function multiGet(client, url, extraParams, dataKey, rangeKey) {
   if (remaining <= 0) return data;
 
   const pulls = Math.ceil(remaining / 100);
-  const requests = [];
-  for (let i = 0; i < pulls; i++) {
-    requests.push(
-      client.get(url, {
-        params: {
-          ...extraParams,
-          offset: amountDownloaded + i * 100,
-          limit: 100,
-        },
-      }),
-    );
-  }
+  for (let i = 0; i < pulls; i += 1) {
+    await sleep(250); // polite inter-page delay to avoid WAF rate-burst alarms
 
-  const responses = await Promise.all(requests);
-  for (const res of responses) {
-    const pageData = res.data.data?.[dataKey] || [];
+    const res = await apiGet(client, url, {
+      params: {
+        ...extraParams,
+        offset: amountDownloaded + i * 100,
+        limit: 100,
+      },
+    });
+
+    const pageData = res.data?.data?.[dataKey] || [];
     data = data.concat(pageData);
   }
 
   return data;
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function fetchRunIds(client, eventId, { startRunId = null } = {}) {
@@ -144,7 +281,7 @@ async function fetchRunIds(client, eventId, { startRunId = null } = {}) {
   const runIds = [];
 
   while (true) {
-    const res = await client.get(`/v1/events/${eventId}/runs`, {
+    const res = await apiGet(client, `/v1/events/${eventId}/runs`, {
       params: { limit, offset },
     });
 
@@ -160,6 +297,7 @@ async function fetchRunIds(client, eventId, { startRunId = null } = {}) {
 
     if (runs.length < limit) break;
     offset += runs.length;
+    await sleep(250);
   }
 
   if (startRunId !== null) {
@@ -170,7 +308,7 @@ async function fetchRunIds(client, eventId, { startRunId = null } = {}) {
 }
 
 async function fetchLatestRunId(client, eventId) {
-  const firstPage = await client.get(`/v1/events/${eventId}/runs`, {
+  const firstPage = await apiGet(client, `/v1/events/${eventId}/runs`, {
     params: { limit: 1, offset: 0 },
   });
 
@@ -186,7 +324,8 @@ async function fetchLatestRunId(client, eventId) {
   }
 
   const lastOffset = Math.max(totalRuns - 1, 0);
-  const lastPage = await client.get(`/v1/events/${eventId}/runs`, {
+  await sleep(250);
+  const lastPage = await apiGet(client, `/v1/events/${eventId}/runs`, {
     params: { limit: 1, offset: lastOffset },
   });
 
@@ -232,7 +371,8 @@ async function fetchRowsByRunIds(
           throw err;
         }
 
-        const waitMs = Math.max(delayMs, 1000) * attempt;
+        const waitMs =
+          status === 403 ? 100000 : Math.max(delayMs, 1000) * attempt;
         console.warn(
           `  ${dataType} run ${runId}: HTTP ${status} on attempt ${attempt}/${maxAttempts}; retrying in ${Math.round(waitMs / 1000)}s...`,
         );
@@ -266,7 +406,7 @@ async function fetchRowsByRunIds(
  * Returns { internalName, displayName }
  */
 async function getEvent(client, eventId) {
-  const res = await client.get(`/v1/events/${eventId}`);
+  const res = await apiGet(client, `/v1/events/${eventId}`);
   const event = res.data?.data?.Events?.[0];
   if (!event) throw new Error(`Event ${eventId} not found`);
   return {
@@ -337,7 +477,7 @@ async function fetchEventResults(
   let newestDate = null;
 
   while (true) {
-    const res = await client.get('/v1/results', {
+    const res = await apiGet(client, '/v1/results', {
       params: { eventNumber: eventId, limit, offset },
     });
 
@@ -362,6 +502,7 @@ async function fetchEventResults(
 
     if (rows.length < limit) break;
     offset += rows.length;
+    await sleep(250);
   }
 
   return allRows;
@@ -429,7 +570,7 @@ async function fetchEventVolunteers(
   let newestDate = null;
 
   while (true) {
-    const res = await client.get('/v1/volunteers', {
+    const res = await apiGet(client, '/v1/volunteers', {
       params: { eventNumber: eventId, limit, offset },
     });
 
@@ -454,6 +595,7 @@ async function fetchEventVolunteers(
 
     if (rows.length < limit) break;
     offset += rows.length;
+    await sleep(250);
   }
 
   return allRows;
@@ -468,7 +610,9 @@ async function fetchTaskNameByAthleteIdForDates(client, eventId, dates) {
   const uniqueDates = [...new Set(dates)].filter(Boolean);
   const lookupStartedAt = Date.now();
 
-  for (const date of uniqueDates) {
+  for (let i = 0; i < uniqueDates.length; i += 1) {
+    const date = uniqueDates[i];
+    if (i > 0) await sleep(250);
     const dateStr = String(date).replace(/-/g, '');
     const maxAttempts = 3;
     let rosterRows = null;
@@ -497,7 +641,8 @@ async function fetchTaskNameByAthleteIdForDates(client, eventId, dates) {
           throw err;
         }
 
-        const waitMs = Math.max(RUN_FETCH_DELAY_MS_INT, 1000) * attempt;
+        const waitMs =
+          status === 403 ? 100000 : Math.max(RUN_FETCH_DELAY_MS_INT, 1000) * attempt;
         console.warn(
           `  rosters ${dateStr}: HTTP ${status} attempt ${attempt}/${maxAttempts}; retrying in ${Math.round(waitMs / 1000)}s.`,
         );
@@ -532,7 +677,46 @@ async function fetchTaskNameByAthleteIdForDates(client, eventId, dates) {
   return taskNameByKey;
 }
 
-// ─── Environment ──────────────────────────────────────────────────────────────
+// ─── Environment & CLI Arguments ──────────────────────────────────────────────
+function parseCliArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i += 1) {
+    const raw = argv[i];
+    if (!raw) continue;
+
+    if (raw.includes('=')) {
+      const eqIdx = raw.indexOf('=');
+      const key = raw
+        .slice(0, eqIdx)
+        .replace(/^--?/, '')
+        .toUpperCase()
+        .replace(/-/g, '_');
+      const val = raw.slice(eqIdx + 1);
+      args[key] = val;
+      continue;
+    }
+
+    if (raw.startsWith('--') || raw.startsWith('-')) {
+      const key = raw.replace(/^--?/, '').toUpperCase().replace(/-/g, '_');
+      const next = argv[i + 1];
+      if (next && !next.startsWith('-') && !next.includes('=')) {
+        args[key] = next;
+        i += 1;
+      } else {
+        args[key] = 'true';
+      }
+      continue;
+    }
+
+    if (/^\d+$/.test(raw)) {
+      args.TARGET_EVENT_NUMBER = raw;
+    }
+  }
+  return args;
+}
+
+const cliArgs = parseCliArgs(process.argv);
+
 const {
   GCP_PROJECT_ID,
   GOOGLE_CREDENTIALS_PATH,
@@ -556,18 +740,73 @@ const {
   RUN_FETCH_DELAY_MS,
 } = process.env;
 
-const SHOULD_RUN_JUNIOR = RUN_JUNIOR === 'true';
-const SHOULD_FETCH_LATEST_ONLY = FETCH_LATEST_ONLY === 'true';
-const TARGET_EVENT_NUMBER_INT = TARGET_EVENT_NUMBER
-  ? parseInt(TARGET_EVENT_NUMBER, 10)
+const rawTargetEventNumber =
+  cliArgs.TARGET_EVENT_NUMBER ||
+  cliArgs.TARGET ||
+  cliArgs.EVENT ||
+  cliArgs.RUN ||
+  TARGET_EVENT_NUMBER;
+
+const TARGET_EVENT_NUMBER_INT = rawTargetEventNumber
+  ? parseInt(rawTargetEventNumber, 10)
   : null;
-const START_EVENT_NUMBER_INT = START_EVENT_NUMBER
-  ? parseInt(START_EVENT_NUMBER, 10)
+
+const rawStartEventNumber =
+  cliArgs.START_EVENT_NUMBER ||
+  cliArgs.START ||
+  START_EVENT_NUMBER;
+
+const START_EVENT_NUMBER_INT = rawStartEventNumber
+  ? parseInt(rawStartEventNumber, 10)
   : null;
-const SCRAPE_ALL = SCRAPE_ALL_EVENTS === 'true';
-const MAX_EVENTS = SCRAPE_MAX_EVENTS ? parseInt(SCRAPE_MAX_EVENTS, 10) : null;
-const RUN_FETCH_DELAY_MS_INT = RUN_FETCH_DELAY_MS
-  ? parseInt(RUN_FETCH_DELAY_MS, 10)
+
+const rawFetchLatestOnly =
+  cliArgs.FETCH_LATEST_ONLY !== undefined
+    ? cliArgs.FETCH_LATEST_ONLY
+    : cliArgs.LATEST !== undefined
+      ? cliArgs.LATEST
+      : FETCH_LATEST_ONLY;
+
+// If a specific target event number is requested, disable latest-only mode automatically.
+const SHOULD_FETCH_LATEST_ONLY =
+  TARGET_EVENT_NUMBER_INT !== null
+    ? false
+    : rawFetchLatestOnly === 'true';
+
+const rawRunJunior =
+  cliArgs.RUN_JUNIOR !== undefined
+    ? cliArgs.RUN_JUNIOR
+    : cliArgs.JUNIOR !== undefined
+      ? cliArgs.JUNIOR
+      : RUN_JUNIOR;
+
+const SHOULD_RUN_JUNIOR = rawRunJunior === 'true';
+
+const rawScrapeAll =
+  cliArgs.SCRAPE_ALL_EVENTS !== undefined
+    ? cliArgs.SCRAPE_ALL_EVENTS
+    : cliArgs.SCRAPE_ALL !== undefined
+      ? cliArgs.SCRAPE_ALL
+      : cliArgs.ALL !== undefined
+        ? cliArgs.ALL
+        : SCRAPE_ALL_EVENTS;
+
+const SCRAPE_ALL = rawScrapeAll === 'true';
+
+const rawMaxEvents =
+  cliArgs.SCRAPE_MAX_EVENTS ||
+  cliArgs.MAX_EVENTS ||
+  SCRAPE_MAX_EVENTS;
+
+const MAX_EVENTS = rawMaxEvents ? parseInt(rawMaxEvents, 10) : null;
+
+const rawRunFetchDelay =
+  cliArgs.RUN_FETCH_DELAY_MS ||
+  cliArgs.FETCH_DELAY ||
+  RUN_FETCH_DELAY_MS;
+
+const RUN_FETCH_DELAY_MS_INT = rawRunFetchDelay
+  ? parseInt(rawRunFetchDelay, 10)
   : 250;
 
 // ─── BigQuery Schemas ─────────────────────────────────────────────────────────
@@ -1200,12 +1439,13 @@ async function processEvent({
 }) {
   console.log(`\n[${label}] Authenticating as ${username} ...`);
   const token = await parkrunAuth(username.trim(), password.trim());
-  const client = makeAuthedClient(token);
+  const client = makeAuthedClient(token, username.trim());
 
   console.log(`[${label}] Fetching event info (ID: ${eventId}) ...`);
   const { internalName: eventShortName, displayName: eventDisplayName } =
     await getEvent(client, eventId);
   console.log(`[${label}] Event: "${eventDisplayName}" (${eventShortName})`);
+  await sleep(350);
 
   const useRunScopedHistory =
     SCRAPE_ALL && !SHOULD_FETCH_LATEST_ONLY && TARGET_EVENT_NUMBER_INT === null;
@@ -1235,7 +1475,7 @@ async function processEvent({
 
   let toInsert = rawResults;
 
-  if (!SCRAPE_ALL) {
+  if (!SCRAPE_ALL && TARGET_EVENT_NUMBER_INT === null) {
     const latestDate = await getLatestStoredDate(
       resultsTable,
       parseInt(eventId, 10),
@@ -1260,7 +1500,7 @@ async function processEvent({
     );
   }
 
-  if (MAX_EVENTS) {
+  if (MAX_EVENTS && TARGET_EVENT_NUMBER_INT === null) {
     const sortedDates = [
       ...new Set(toInsert.map(r => toDateString(r.EventDate)).filter(Boolean)),
     ]
@@ -1323,6 +1563,7 @@ async function processEvent({
   );
 
   // ── Historical volunteers (processed after results) ─────────────────────
+  await sleep(350);
   console.log(`[${label}] Fetching volunteer history for event ${eventId} ...`);
   const rawVolunteers = await fetchEventVolunteers(client, eventId, {
     latestOnly: SHOULD_FETCH_LATEST_ONLY,
@@ -1337,7 +1578,7 @@ async function processEvent({
 
   let volunteersToInsertRaw = rawVolunteers;
 
-  if (!SCRAPE_ALL) {
+  if (!SCRAPE_ALL && TARGET_EVENT_NUMBER_INT === null) {
     const latestVolunteerDate = await getLatestStoredDate(
       volunteersTable,
       parseInt(eventId, 10),
@@ -1356,7 +1597,7 @@ async function processEvent({
     }
   }
 
-  if (MAX_EVENTS) {
+  if (MAX_EVENTS && TARGET_EVENT_NUMBER_INT === null) {
     const sortedVolunteerDates = [
       ...new Set(
         volunteersToInsertRaw
@@ -1383,6 +1624,7 @@ async function processEvent({
     ];
 
     const rosterLookupStartedAt = Date.now();
+    await sleep(350);
     const taskNameByKey = await fetchTaskNameByAthleteIdForDates(
       client,
       eventId,
@@ -1488,7 +1730,7 @@ async function main() {
   }
 
   console.log(
-    `Mode: ${SCRAPE_ALL ? 'full scrape' : 'incremental'}${MAX_EVENTS ? `, max ${MAX_EVENTS} event dates` : ''}`,
+    `Mode: ${TARGET_EVENT_NUMBER_INT !== null ? `target run ${TARGET_EVENT_NUMBER_INT}` : SCRAPE_ALL ? 'full scrape' : 'incremental'}${MAX_EVENTS && TARGET_EVENT_NUMBER_INT === null ? `, max ${MAX_EVENTS} event dates` : ''}`,
   );
   console.log(
     `Run fetch pause: RUN_FETCH_DELAY_MS=${RUN_FETCH_DELAY_MS ?? 'unset'} (effective ${RUN_FETCH_DELAY_MS_INT}ms).`,

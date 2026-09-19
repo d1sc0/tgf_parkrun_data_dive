@@ -53,6 +53,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Restore Parkrun Token Cache
+        uses: actions/cache@v4
+        with:
+          path: .parkrun-token-cache.json
+          key: parkrun-token-${{ github.run_id }}
+          restore-keys: |
+            parkrun-token-
+
       - name: Validate required secrets
         shell: bash
         env:
@@ -161,6 +169,7 @@ jobs:
           node - <<'NODE'
           const axios = require('axios');
           const qs = require('querystring');
+          const fs = require('fs');
 
           const base = 'https://api.parkrun.com';
           const body = qs.stringify({
@@ -171,35 +180,66 @@ jobs:
           });
 
           (async () => {
-            const res = await axios.post(`${base}/user_auth.php`, body, {
-              headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'parkrun/1.2.7 CFNetwork/1121.2.2 Darwin/19.3.0',
-                'X-Powered-By': 'tgf-parkrun-processor-preflight',
-              },
-              auth: {
-                username: process.env.PARKRUN_CLIENT_ID,
-                password: process.env.PARKRUN_CLIENT_SECRET,
-              },
-              timeout: 30000,
-            });
+            const maxAttempts = 2;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                const res = await axios.post(`${base}/user_auth.php`, body, {
+                  headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'User-Agent': 'parkrun/2.2.0 CFNetwork/1498.700.2 Darwin/23.6.0',
+                    Accept: 'application/json',
+                    'Accept-Language': 'en-GB,en;q=0.9',
+                  },
+                  auth: {
+                    username: process.env.PARKRUN_CLIENT_ID,
+                    password: process.env.PARKRUN_CLIENT_SECRET,
+                  },
+                  timeout: 30000,
+                });
 
-            if (!res.data || !res.data.access_token) {
-              throw new Error('No access_token returned by Parkrun auth endpoint.');
-            }
+                if (!res.data || !res.data.access_token) {
+                  throw new Error('No access_token returned by Parkrun auth endpoint.');
+                }
 
-            console.log('Parkrun auth preflight passed.');
-          })().catch(err => {
-            const status = err?.response?.status;
-            if (status === 403) {
-              console.error(
-                'Parkrun auth preflight failed with HTTP 403. Check PARKRUN_* secrets and consider possible CI runner IP blocking.',
-              );
-            } else {
-              console.error(`Parkrun auth preflight failed: ${err.message || err}`);
+                // Cache token so the subsequent sync_parkrun.js step reuses it without re-logging in
+                const expiresIn = res.data.expires_in
+                  ? parseInt(res.data.expires_in, 10)
+                  : 3600;
+                const cache = {
+
+                access_token: res.data.access_token,
+                    refresh_token: res.data.refresh_token || null,
+                    expires_at: Date.now() + expiresIn * 1000,
+                  },
+                };
+                fs.writeFileSync(
+                  '.parkrun-token-cache.json',
+                  JSON.stringify(cache, null, 2),
+                  { mode: 0o600 },
+                );
+
+                console.log('Parkrun auth preflight passed (token cached for sync step).');
+                break;
+              } catch (err) {
+                const status = err?.response?.status;
+                if (status === 403 && attempt < maxAttempts) {
+                  console.warn(
+                    'Parkrun auth preflight returned HTTP 403 (WAF cooldown). Waiting 100s before retrying...',
+                  );
+                  await new Promise(resolve => setTimeout(resolve, 100000));
+                  continue;
+                }
+                if (status === 403) {
+                  console.error(
+                    'Parkrun auth preflight failed with HTTP 403 after retry. Check PARKRUN_* secrets and consider possible CI runner IP blocking.',
+                  );
+                } else {
+                  console.error(`Parkrun auth preflight failed: ${err.message || err}`);
+                }
+                process.exit(1);
+              }
             }
-            process.exit(1);
-          });
+          })();
           NODE
 
       - name: Ensure BigQuery dataset/tables exist

@@ -127,6 +127,10 @@ Main event data:
 
 HTTP 403 handling (important):
 
+- sync_parkrun.js:
+  - Caches access tokens locally in `.parkrun-token-cache.json` (gitignored) to avoid repeated logins.
+  - Automatically waits 100 seconds on 403 (WAF cooldown) and retries.
+  - Paces paginated requests sequentially (250ms) to prevent WAF burst triggers.
 - utilities/backfill-missing.js:
   - Waits 100 seconds on 403 and re-authenticates before retry.
 - utilities/compare-bq-vs-eventhistory.js:
@@ -165,6 +169,7 @@ Text report sections:
 - npm run sync:weather
 - npm run sync:weather:latest
 - npm run dev
+- npm run dev TARGET_EVENT_NUMBER=232 (or TARGET_EVENT_NUMBER=232 npm run dev)
 - npm run backfill -- --input missing.json
 - npm run compare:bq
 

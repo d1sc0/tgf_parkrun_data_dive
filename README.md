@@ -177,6 +177,14 @@ Run latest-only sync (local one-off):
 
 FETCH_LATEST_ONLY=true SCRAPE_MAX_EVENTS=1 RUN_JUNIOR=false npm run dev
 
+Run specific event sync (fetches only that RunId and preserves past dates):
+
+npm run dev TARGET_EVENT_NUMBER=232
+# or:
+npm run dev -- --target=232
+# or:
+TARGET_EVENT_NUMBER=232 npm run dev
+
 ## 🚀 Deployment
 
 The analytics dashboard is optimized for **Firebase App Hosting** using Server-Side Rendering (SSR).
@@ -346,5 +354,6 @@ Note: JUNIOR\_\* secrets are included in the workflow env for convenience even t
 ## Notes
 
 - Cron in GitHub Actions uses UTC.
-- If Parkrun API rate-limits, rerun later or reduce frequency.
+- Auth token caching: `sync_parkrun.js` caches valid access tokens to `.parkrun-token-cache.json` (gitignored) to prevent repeated logins during local runs and across workflow steps in GitHub Actions.
+- If Parkrun API returns HTTP 403, scripts automatically pause for 100 seconds to allow the Cloudflare/WAF cooldown window to expire before retrying.
 - Overwrite logic prevents duplicates by deleting existing event/date slice before insert.

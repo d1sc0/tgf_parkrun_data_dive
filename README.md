@@ -324,11 +324,14 @@ Workflow file:
 
 Current behavior in workflow:
 
-- Runs every Monday at 05:00 UTC.
+- Runs every Monday at 06:00 UTC.
 - Also supports manual run via workflow_dispatch.
+- Restores token cache (`.parkrun-token-cache.json`) to minimize authentication requests.
+- Connects to Cloudflare WARP via WireGuard to bypass AWS WAF datacenter IP blocks on `api.parkrun.com`.
+- Preflights BigQuery and Parkrun authentication with retry cooldowns.
 - Syncs event coordinates before data sync:
   - npm run sync:coordinates
-- Runs data sync in latest-only mode:
+- Runs data sync in latest-only mode (reusing cached token):
   - FETCH_LATEST_ONLY=true
   - SCRAPE_MAX_EVENTS=1
   - RUN_JUNIOR=false

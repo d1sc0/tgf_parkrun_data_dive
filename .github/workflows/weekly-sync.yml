@@ -199,6 +199,9 @@ jobs:
             const maxAttempts = 2;
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
               try {
+                console.log(
+                  `[${new Date().toISOString()}] Attempt ${attempt}/${maxAttempts}: Authenticating with Parkrun API...`,
+                );
                 const res = await axios.post(`${base}/user_auth.php`, body, {
                   headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -232,23 +235,39 @@ jobs:
                   { mode: 0o600 },
                 );
 
-                console.log('Parkrun auth preflight passed (token cached for sync step).');
+                console.log(
+                  `[${new Date().toISOString()}] Parkrun auth preflight passed (token cached for sync step).`,
+                );
                 break;
               } catch (err) {
                 const status = err?.response?.status;
+                const cfRay = err?.response?.headers?.['cf-ray'];
+                const server = err?.response?.headers?.['server'];
+                const contentType = err?.response?.headers?.['content-type'];
+                const rawData = err?.response?.data;
+                const dataSnippet = typeof rawData === 'string'
+                  ? rawData.replace(/\s+/g, ' ').slice(0, 200)
+                  : JSON.stringify(rawData || {});
+
+                console.warn(
+                  `[${new Date().toISOString()}] Attempt ${attempt}/${maxAttempts} failed with HTTP ${status || err.code || 'UNKNOWN'}. Details: server=${server || 'n/a'}, cf-ray=${cfRay || 'n/a'}, type=${contentType || 'n/a'}, body=${dataSnippet}`,
+                );
+
                 if (status === 403 && attempt < maxAttempts) {
                   console.warn(
-                    'Parkrun auth preflight returned HTTP 403 (WAF cooldown). Waiting 100s before retrying...',
+                    `[${new Date().toISOString()}] Waiting 100s cooldown before retrying attempt ${attempt + 1}/${maxAttempts}...`,
                   );
                   await new Promise(resolve => setTimeout(resolve, 100000));
                   continue;
                 }
                 if (status === 403) {
                   console.error(
-                    'Parkrun auth preflight failed with HTTP 403 after retry. Check PARKRUN_* secrets and consider possible CI runner IP blocking.',
+                    `[${new Date().toISOString()}] Parkrun auth preflight failed with HTTP 403 after ${attempt} attempt(s). Check PARKRUN_* secrets and consider possible CI runner IP blocking.`,
                   );
                 } else {
-                  console.error(`Parkrun auth preflight failed: ${err.message || err}`);
+                  console.error(
+                    `[${new Date().toISOString()}] Parkrun auth preflight failed: ${err.message || err}`,
+                  );
                 }
                 process.exit(1);
               }

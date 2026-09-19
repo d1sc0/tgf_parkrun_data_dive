@@ -172,8 +172,24 @@ jobs:
           const fs = require('fs');
 
           const base = 'https://api.parkrun.com';
+          const username = (process.env.PARKRUN_USERNAME || '').trim();
+          const cacheFile = '.parkrun-token-cache.json';
+
+          let cache = {};
+          try {
+            if (fs.existsSync(cacheFile)) {
+              cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+            }
+          } catch (_) {}
+
+          const cachedEntry = cache[username];
+          if (username && cachedEntry && cachedEntry.access_token && cachedEntry.expires_at > Date.now() + 120000) {
+            console.log('Parkrun auth preflight passed (using existing valid cached token).');
+            process.exit(0);
+          }
+
           const body = qs.stringify({
-            username: process.env.PARKRUN_USERNAME,
+            username,
             password: process.env.PARKRUN_PASSWORD,
             scope: 'app',
             grant_type: 'password',
@@ -205,15 +221,13 @@ jobs:
                 const expiresIn = res.data.expires_in
                   ? parseInt(res.data.expires_in, 10)
                   : 3600;
-                const cache = {
-
-                access_token: res.data.access_token,
-                    refresh_token: res.data.refresh_token || null,
-                    expires_at: Date.now() + expiresIn * 1000,
-                  },
+                cache[username] = {
+                  access_token: res.data.access_token,
+                  refresh_token: res.data.refresh_token || null,
+                  expires_at: Date.now() + expiresIn * 1000,
                 };
                 fs.writeFileSync(
-                  '.parkrun-token-cache.json',
+                  cacheFile,
                   JSON.stringify(cache, null, 2),
                   { mode: 0o600 },
                 );
@@ -239,7 +253,10 @@ jobs:
                 process.exit(1);
               }
             }
-          })();
+          })().catch(err => {
+            console.error(`Parkrun auth preflight unexpected error: ${err && err.message ? err.message : String(err)}`);
+            process.exit(1);
+          });
           NODE
 
       - name: Ensure BigQuery dataset/tables exist

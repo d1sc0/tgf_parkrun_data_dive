@@ -61,6 +61,15 @@ jobs:
           restore-keys: |
             parkrun-token-
 
+      - name: Set up Cloudflare WARP (Bypass datacenter IP blocks)
+        uses: fscarmen/warp-on-actions@main
+        with:
+          stack: dual
+          mode: wireguard
+
+      - name: Verify outbound IP via Cloudflare
+        run: curl -s https://cloudflare.com/cdn-cgi/trace | grep -E 'ip=|warp=' || true
+
       - name: Validate required secrets
         shell: bash
         env:
